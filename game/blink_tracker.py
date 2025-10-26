@@ -14,6 +14,8 @@ import json
 import time
 from datetime import datetime
 import os
+from eyetrax import GazeEstimator, run_9_point_calibration
+import cv2
 
 # Configuration
 LOG_DIR = "blink_logs"
@@ -25,16 +27,24 @@ class BlinkTracker:
         self.session_start_time = None
         self.log_file = None
         self.blink_count = 0
+        self.estimator = None
+        self.cap = None
+        self.was_blinking = False
         
-        # Ensure log directory exists
-        if not os.path.exists(LOG_DIR):
-            os.makedirs(LOG_DIR)
+        # Clear all previous blink logs
+        if os.path.exists(LOG_DIR):
+            import shutil
+            shutil.rmtree(LOG_DIR)
+        
+        # Create fresh log directory
+        os.makedirs(LOG_DIR)
     
     def start_tracking(self, session_id):
-        """Start a new blink tracking session"""
+        """Start tracking blinks for a session"""
         self.is_tracking = True
         self.session_start_time = time.time()
         self.blink_count = 0
+        self.was_blinking = False
         
         # Create log file with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -45,15 +55,33 @@ class BlinkTracker:
         self.log_file.write(f"Blink Tracking Session: {session_id}\n")
         self.log_file.write(f"Start Time: {datetime.now().isoformat()}\n")
         self.log_file.write("=" * 50 + "\n")
-        self.log_file.write("Timestamp (ms), Blink Number, Relative Time (ms)\n")
+        self.log_file.write("Timestamp, Blink Number, Relative Time (s)\n")
         self.log_file.flush()
         
-        self.send_message("status", "tracking_started", {"log_file": log_filename})
-        
-        # TODO: Initialize camera/blink detection here
-        # camera = cv2.VideoCapture(CAMERA_INDEX)
-        # Initialize your blink detection model/framework
-    
+        # Initialize GazeEstimator and run calibration
+        try:
+            self.send_message("status", "calibrating", {"message": "Starting 9-point calibration..."})
+            self.estimator = GazeEstimator()
+            run_9_point_calibration(self.estimator)
+            
+            # Save calibration model
+            self.estimator.save_model("gaze_model.pkl")
+            
+            # Initialize camera
+            self.cap = cv2.VideoCapture(CAMERA_INDEX)
+            
+            self.send_message("status", "tracking_started", {"log_file": log_filename})
+        except Exception as e:
+            self.send_message("error", "initialization_failed", {"message": str(e)})
+            self.is_tracking = False
+            if self.log_file:
+                self.log_file.close()
+                self.log_file = None
+            raise
+
+
+
+
     def stop_tracking(self):
         """Stop the current tracking session"""
         self.is_tracking = False
@@ -65,58 +93,75 @@ class BlinkTracker:
             self.log_file.close()
             self.log_file = None
         
+        # Release camera and cleanup resources
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        
+        self.estimator = None
+        self.was_blinking = False
+        
         self.send_message("status", "tracking_stopped", {
             "total_blinks": self.blink_count,
-            "duration_ms": int((time.time() - self.session_start_time) * 1000) if self.session_start_time else 0
+            "duration_s": round((time.time() - self.session_start_time), 2) if self.session_start_time else 0
         })
-        
-        # TODO: Release camera/cleanup resources
-        # camera.release()
     
     def detect_blink(self):
         """
-        YOUR FRIEND SHOULD REPLACE THIS FUNCTION
-        
-        This is where the actual blink detection logic goes.
-        Return True if a blink is detected, False otherwise.
-        
-        Example implementation outline:
-        - Capture frame from camera
-        - Process frame with blink detection model
-        - Return True if blink detected
-        
-        Example:
-            ret, frame = camera.read()
-            if ret:
-                # Your blink detection code here
-                # Example: using eye aspect ratio, ML model, etc.
-                if blink_detected:
-                    return True
-            return False
+        Detect blinks using eyetrax GazeEstimator
+        Returns True if a blink is detected (transition from not blinking to blinking)
         """
-        # PLACEHOLDER: Replace with actual blink detection
-        # For testing, this returns False (no blinks)
+        if self.cap is None or self.estimator is None:
+            return False
+        
+        # Capture frame from camera
+        ret, frame = self.cap.read()
+        if not ret:
+            return False
+        
+        try:
+            # Extract features and blink status from frame
+            features, blink = self.estimator.extract_features(frame)
+            
+            # Optional: Predict gaze coordinates when not blinking
+            if features is not None and not blink:
+                x, y = self.estimator.predict([features])[0]
+                # Uncomment to see gaze coordinates:
+                # print(f"Gaze: ({x:.0f}, {y:.0f})")
+            
+            # Only return True when transitioning from not blinking to blinking
+            if blink and not self.was_blinking:
+                self.was_blinking = True
+                return True
+            
+            # Update previous state
+            self.was_blinking = blink
+            
+        except Exception as e:
+            # Log error but continue tracking
+            self.send_message("error", "detection_error", {"message": str(e)})
+        
         return False
     
     def log_blink(self):
         """Log a detected blink"""
-        if not self.is_tracking or not self.log_file:
+        if not self.is_tracking or not self.log_file or self.session_start_time is None:
             return
         
         current_time = time.time()
-        relative_time_ms = int((current_time - self.session_start_time) * 1000)
+        relative_time_s = round((current_time - self.session_start_time), 2)
         self.blink_count += 1
         
         # Write to log file
         timestamp = datetime.now().isoformat()
-        log_line = f"{timestamp}, {self.blink_count}, {relative_time_ms}\n"
+        log_line = f"{timestamp}, {self.blink_count}, {relative_time_s}\n"
         self.log_file.write(log_line)
         self.log_file.flush()
         
         # Send real-time update to game
         self.send_message("blink", "detected", {
             "blink_number": self.blink_count,
-            "relative_time_ms": relative_time_ms,
+            "relative_time_s": relative_time_s,
             "timestamp": timestamp
         })
     
