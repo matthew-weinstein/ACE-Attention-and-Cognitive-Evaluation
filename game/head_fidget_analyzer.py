@@ -1,14 +1,14 @@
-`"""
-Head Fidgeting Analysis Algorithm
+"""
+Head Movement Analysis Algorithm
 
-This module processes raw head orientation data (pitch, yaw, roll) and converts it
-into meaningful fidgeting metrics that can be visualized over time.
+Processes raw head orientation data (pitch, yaw, roll) and converts it
+into quantified movement metrics.
 
-Fidgeting is measured by:
+Movement is measured by:
 1. Movement velocity (rate of change in head angles)
 2. Movement magnitude (total angular displacement)
-3. Movement frequency (number of direction changes)
-4. Stillness periods (times when head is relatively stable)
+3. Movement frequency (discrete movement events)
+4. Stillness periods (stable head position)
 """
 
 import numpy as np
@@ -84,170 +84,167 @@ class HeadFidgetAnalyzer:
         }
     
     def calculate_angular_velocity(self, angles, timestamps):
-        """
-        Calculate velocity (rate of change) of angle over time
-        
-        Args:
-            angles: Array of angle values (degrees)
-            timestamps: Array of timestamps (milliseconds)
-        
-        Returns:
-            Array of angular velocities (degrees/second)
-        """
+        """Calculate angular velocity with outlier filtering and angle wrapping"""
         if len(angles) < 2:
             return np.array([0])
         
-        # Calculate time differences in seconds
         time_diffs = np.diff(timestamps) / 1000.0
-        time_diffs[time_diffs == 0] = 0.001  # Avoid division by zero
+        time_diffs[time_diffs == 0] = 0.001
+        time_diffs[time_diffs > 1.0] = 0.001
         
-        # Calculate angle differences
         angle_diffs = np.diff(angles)
         
-        # Calculate velocity (degrees per second)
+        # Handle angle wrapping (for yaw/roll crossing ±180° boundary)
+        angle_diffs[angle_diffs > 180] -= 360
+        angle_diffs[angle_diffs < -180] += 360
+        
         velocities = angle_diffs / time_diffs
         
-        # Prepend zero for first value to maintain array length
+        # Filter unrealistic velocities (sensor noise/errors)
+        max_realistic_velocity = 200
+        velocities[np.abs(velocities) > max_realistic_velocity] = 0
+        
         velocities = np.insert(velocities, 0, 0)
         
         return velocities
     
     def calculate_total_movement(self, pitch_vel, yaw_vel, roll_vel):
-        """
-        Calculate total head movement magnitude (combining all axes)
+        """Calculate weighted total head movement magnitude"""
+        pitch_weight = 1.0
+        yaw_weight = 1.2
+        roll_weight = 0.6
         
-        Args:
-            pitch_vel, yaw_vel, roll_vel: Angular velocities for each axis
-        
-        Returns:
-            Array of total movement magnitudes
-        """
-        # Calculate Euclidean norm of velocity vector
-        total_movement = np.sqrt(pitch_vel**2 + yaw_vel**2 + roll_vel**2)
+        total_movement = np.sqrt(
+            (pitch_vel * pitch_weight)**2 + 
+            (yaw_vel * yaw_weight)**2 + 
+            (roll_vel * roll_weight)**2
+        )
         return total_movement
     
     def smooth_signal(self, signal):
-        """
-        Smooth signal to reduce noise
-        
-        Args:
-            signal: Input signal array
-        
-        Returns:
-            Smoothed signal
-        """
-        if len(signal) < self.smoothing_window:
+        """Dual-pass smoothing: EMA + moving average"""
+        if len(signal) < 3:
             return signal
         
-        # Use Savitzky-Golay filter for smoothing
-        window = min(self.smoothing_window, len(signal))
+        alpha = 2.0 / (self.smoothing_window + 1)
+        ema = np.zeros_like(signal)
+        ema[0] = signal[0]
+        
+        for i in range(1, len(signal)):
+            ema[i] = alpha * signal[i] + (1 - alpha) * ema[i - 1]
+        
+        window = min(self.smoothing_window, len(ema))
         if window % 2 == 0:
-            window -= 1  # Must be odd
+            window -= 1
         if window < 3:
             window = 3
         
         try:
-            smoothed = savgol_filter(signal, window, 2)
+            smoothed = savgol_filter(ema, window, 2)
         except:
-            # Fallback to Gaussian smoothing
-            smoothed = gaussian_filter1d(signal, sigma=1.0)
+            smoothed = gaussian_filter1d(ema, sigma=1.0)
         
         return smoothed
     
     def detect_movement_events(self, total_movement, timestamps):
-        """
-        Detect discrete movement events (fidgets)
-        
-        Args:
-            total_movement: Array of movement magnitudes
-            timestamps: Array of timestamps
-        
-        Returns:
-            List of movement events with start time, duration, and intensity
-        """
+        """Detect movement events with adaptive thresholds and event merging"""
         events = []
         in_movement = False
         movement_start = None
         movement_intensity = []
         
+        median = np.median(total_movement)
+        q3 = np.percentile(total_movement, 75)
+        adaptive_threshold = max(self.movement_threshold, median + (q3 - median) * 0.5)
+        
         for i, (movement, timestamp) in enumerate(zip(total_movement, timestamps)):
-            if movement > self.movement_threshold:
+            if movement > adaptive_threshold:
                 if not in_movement:
-                    # Start of new movement
                     in_movement = True
                     movement_start = timestamp
                     movement_intensity = [movement]
                 else:
-                    # Continuation of movement
                     movement_intensity.append(movement)
             else:
                 if in_movement:
-                    # End of movement
-                    events.append({
-                        'start_time': movement_start,
-                        'end_time': timestamp,
-                        'duration_ms': timestamp - movement_start,
-                        'peak_intensity': max(movement_intensity),
-                        'avg_intensity': np.mean(movement_intensity)
-                    })
+                    duration = timestamp - movement_start
+                    if duration >= 100:
+                        events.append({
+                            'start_time': movement_start,
+                            'end_time': timestamp,
+                            'duration_ms': duration,
+                            'peak_intensity': max(movement_intensity),
+                            'avg_intensity': np.mean(movement_intensity)
+                        })
                     in_movement = False
         
-        # Handle case where movement continues to end
         if in_movement and movement_start is not None:
-            events.append({
-                'start_time': movement_start,
-                'end_time': timestamps[-1],
-                'duration_ms': timestamps[-1] - movement_start,
-                'peak_intensity': max(movement_intensity),
-                'avg_intensity': np.mean(movement_intensity)
-            })
+            duration = timestamps[-1] - movement_start
+            if duration >= 100:
+                events.append({
+                    'start_time': movement_start,
+                    'end_time': timestamps[-1],
+                    'duration_ms': duration,
+                    'peak_intensity': max(movement_intensity),
+                    'avg_intensity': np.mean(movement_intensity)
+                })
         
-        return events
+        return self.merge_close_events(events, 200)
+    
+    def merge_close_events(self, events, max_gap_ms):
+        """Merge movement events that are close together"""
+        if len(events) == 0:
+            return events
+        
+        merged = [events[0].copy()]
+        
+        for event in events[1:]:
+            last_event = merged[-1]
+            gap = event['start_time'] - last_event['end_time']
+            
+            if gap < max_gap_ms:
+                last_event['end_time'] = event['end_time']
+                last_event['duration_ms'] = last_event['end_time'] - last_event['start_time']
+                last_event['peak_intensity'] = max(last_event['peak_intensity'], event['peak_intensity'])
+                last_event['avg_intensity'] = (last_event['avg_intensity'] + event['avg_intensity']) / 2
+            else:
+                merged.append(event.copy())
+        
+        return merged
     
     def calculate_fidget_score(self, total_movement, window_size_ms=1000):
-        """
-        Calculate fidgeting score over time windows
-        
-        Args:
-            total_movement: Array of movement magnitudes
-            window_size_ms: Size of time window in milliseconds
-        
-        Returns:
-            Array of fidget scores (0-100 scale)
-        """
-        # Use rolling window to calculate average movement
+        """Calculate movement index using robust IQR-based scaling"""
         if len(total_movement) == 0:
             return np.array([0])
         
-        # Normalize movement to 0-100 scale
-        max_movement = np.percentile(total_movement, 95)  # Use 95th percentile to avoid outliers
-        if max_movement == 0:
+        q1 = np.percentile(total_movement, 25)
+        q3 = np.percentile(total_movement, 75)
+        iqr = q3 - q1
+        median = np.median(total_movement)
+        
+        upper_bound = q3 + (1.5 * iqr)
+        max_movement = max(upper_bound, np.percentile(total_movement, 95))
+        
+        if max_movement == 0 or max_movement == q1:
             return np.zeros_like(total_movement)
         
-        fidget_score = (total_movement / max_movement) * 100
+        adjusted_movement = np.maximum(0, total_movement - median)
+        fidget_score = (adjusted_movement / (max_movement - median)) * 100
         fidget_score = np.clip(fidget_score, 0, 100)
         
         return fidget_score
     
     def calculate_stillness_periods(self, total_movement, timestamps, stillness_threshold=1.0, min_duration_ms=2000):
-        """
-        Identify periods of stillness (low movement)
-        
-        Args:
-            total_movement: Array of movement magnitudes
-            timestamps: Array of timestamps
-            stillness_threshold: Maximum movement to be considered still
-            min_duration_ms: Minimum duration to count as stillness period
-        
-        Returns:
-            List of stillness periods
-        """
+        """Identify stillness periods using adaptive threshold"""
         periods = []
         in_stillness = False
         stillness_start = None
         
+        q1 = np.percentile(total_movement, 25)
+        adaptive_threshold = max(stillness_threshold, q1 * 1.5)
+        
         for i, (movement, timestamp) in enumerate(zip(total_movement, timestamps)):
-            if movement < stillness_threshold:
+            if movement < adaptive_threshold:
                 if not in_stillness:
                     in_stillness = True
                     stillness_start = timestamp
@@ -262,7 +259,6 @@ class HeadFidgetAnalyzer:
                         })
                     in_stillness = False
         
-        # Handle case where stillness continues to end
         if in_stillness and stillness_start is not None:
             duration = timestamps[-1] - stillness_start
             if duration >= min_duration_ms:
@@ -298,27 +294,31 @@ class HeadFidgetAnalyzer:
                 'summary': {}
             }
         
-        # Calculate velocities for each axis
+        # Calculate velocities with improved algorithm
         pitch_vel = self.calculate_angular_velocity(data['pitch'], data['timestamps'])
         yaw_vel = self.calculate_angular_velocity(data['yaw'], data['timestamps'])
         roll_vel = self.calculate_angular_velocity(data['roll'], data['timestamps'])
         
-        # Calculate total movement magnitude
-        total_movement = self.calculate_total_movement(pitch_vel, yaw_vel, roll_vel)
+        # Calculate acceleration (second derivative)
+        pitch_accel = self.calculate_angular_velocity(pitch_vel, data['timestamps'])
+        yaw_accel = self.calculate_angular_velocity(yaw_vel, data['timestamps'])
+        roll_accel = self.calculate_angular_velocity(roll_vel, data['timestamps'])
         
-        # Smooth the signal
+        # Calculate weighted total movement
+        total_movement = self.calculate_total_movement(pitch_vel, yaw_vel, roll_vel)
+        total_acceleration = self.calculate_total_movement(pitch_accel, yaw_accel, roll_accel)
+        
+        # Apply dual-pass smoothing
         total_movement_smooth = self.smooth_signal(total_movement)
         
-        # Calculate fidget score
+        # Calculate movement index with robust scaling
         fidget_score = self.calculate_fidget_score(total_movement_smooth)
         
-        # Detect movement events
+        # Detect events with adaptive thresholds
         movement_events = self.detect_movement_events(total_movement_smooth, data['timestamps'])
-        
-        # Detect stillness periods
         stillness_periods = self.calculate_stillness_periods(total_movement_smooth, data['timestamps'])
         
-        # Calculate summary statistics
+        # Enhanced summary statistics
         duration_seconds = (data['timestamps'][-1] - data['timestamps'][0]) / 1000.0
         summary = {
             'total_duration_seconds': duration_seconds,
@@ -331,7 +331,10 @@ class HeadFidgetAnalyzer:
             'stillness_percentage': (sum([p['duration_ms'] for p in stillness_periods]) / (duration_seconds * 1000.0)) * 100 if duration_seconds > 0 else 0,
             'average_pitch_deviation': float(np.std(data['pitch'])),
             'average_yaw_deviation': float(np.std(data['yaw'])),
-            'average_roll_deviation': float(np.std(data['roll']))
+            'average_roll_deviation': float(np.std(data['roll'])),
+            'average_velocity': float(np.mean(total_movement)),
+            'peak_velocity': float(np.max(total_movement)),
+            'average_acceleration': float(np.mean(total_acceleration))
         }
         
         # Convert timestamps to relative seconds for easier plotting
@@ -346,8 +349,12 @@ class HeadFidgetAnalyzer:
             'pitch_velocity': pitch_vel.tolist(),
             'yaw_velocity': yaw_vel.tolist(),
             'roll_velocity': roll_vel.tolist(),
+            'pitch_acceleration': pitch_accel.tolist(),
+            'yaw_acceleration': yaw_accel.tolist(),
+            'roll_acceleration': roll_accel.tolist(),
             'total_movement': total_movement.tolist(),
             'total_movement_smooth': total_movement_smooth.tolist(),
+            'total_acceleration': total_acceleration.tolist(),
             'fidget_score': fidget_score.tolist(),
             'movement_events': movement_events,
             'stillness_periods': stillness_periods,

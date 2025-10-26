@@ -120,12 +120,18 @@ class HeadFidgetVisualizer {
    */
   calculateTotalMovement(pitchVel, yawVel, rollVel) {
     const totalMovement = [];
+    
+    const pitchWeight = 1.0;
+    const yawWeight = 1.2;
+    const rollWeight = 0.6;
 
     for (let i = 0; i < pitchVel.length; i++) {
-      const magnitude = Math.sqrt(
-        pitchVel[i] ** 2 + yawVel[i] ** 2 + rollVel[i] ** 2
+      const weightedMagnitude = Math.sqrt(
+        (pitchVel[i] * pitchWeight) ** 2 + 
+        (yawVel[i] * yawWeight) ** 2 + 
+        (rollVel[i] * rollWeight) ** 2
       );
-      totalMovement.push(magnitude);
+      totalMovement.push(weightedMagnitude);
     }
 
     return totalMovement;
@@ -135,20 +141,28 @@ class HeadFidgetVisualizer {
    * Simple moving average smoothing
    */
   smoothSignal(signal, windowSize = 5) {
-    if (signal.length < windowSize) return signal;
+    if (signal.length < 3) return signal;
 
-    const smoothed = [];
+    const alpha = 2 / (windowSize + 1);
+    const smoothed = [signal[0]];
+
+    for (let i = 1; i < signal.length; i++) {
+      const ema = alpha * signal[i] + (1 - alpha) * smoothed[i - 1];
+      smoothed.push(ema);
+    }
+    
+    const finalSmoothed = [];
     const halfWindow = Math.floor(windowSize / 2);
 
-    for (let i = 0; i < signal.length; i++) {
+    for (let i = 0; i < smoothed.length; i++) {
       const start = Math.max(0, i - halfWindow);
-      const end = Math.min(signal.length, i + halfWindow + 1);
-      const window = signal.slice(start, end);
+      const end = Math.min(smoothed.length, i + halfWindow + 1);
+      const window = smoothed.slice(start, end);
       const avg = window.reduce((sum, val) => sum + val, 0) / window.length;
-      smoothed.push(avg);
+      finalSmoothed.push(avg);
     }
 
-    return smoothed;
+    return finalSmoothed;
   }
 
   /**
@@ -157,14 +171,23 @@ class HeadFidgetVisualizer {
   calculateFidgetScore(totalMovement) {
     if (totalMovement.length === 0) return [];
 
-    // Find 95th percentile to avoid outliers
     const sorted = [...totalMovement].sort((a, b) => a - b);
-    const percentile95Index = Math.floor(sorted.length * 0.95);
-    const maxMovement = sorted[percentile95Index] || 1;
+    const q1Index = Math.floor(sorted.length * 0.25);
+    const q3Index = Math.floor(sorted.length * 0.75);
+    const q1 = sorted[q1Index];
+    const q3 = sorted[q3Index];
+    const iqr = q3 - q1;
+    const median = sorted[Math.floor(sorted.length * 0.5)];
+    const upperBound = q3 + (1.5 * iqr);
+    const maxMovement = Math.max(upperBound, sorted[Math.floor(sorted.length * 0.95)]);
+    
+    if (maxMovement === 0 || maxMovement === q1) {
+      return new Array(totalMovement.length).fill(0);
+    }
 
-    // Normalize to 0-100 scale
     const fidgetScore = totalMovement.map(movement => {
-      const score = (movement / maxMovement) * 100;
+      const adjustedMovement = Math.max(0, movement - median);
+      const score = (adjustedMovement / (maxMovement - median)) * 100;
       return Math.min(100, Math.max(0, score));
     });
 
@@ -179,49 +202,80 @@ class HeadFidgetVisualizer {
     let inMovement = false;
     let movementStart = null;
     let movementIntensities = [];
+    
+    const sorted = [...totalMovement].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length * 0.5)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const adaptiveThreshold = Math.max(this.movementThreshold, median + (q3 - median) * 0.5);
 
     for (let i = 0; i < totalMovement.length; i++) {
       const movement = totalMovement[i];
       const timestamp = timestamps[i];
 
-      if (movement > this.movementThreshold) {
+      if (movement > adaptiveThreshold) {
         if (!inMovement) {
-          // Start new movement
           inMovement = true;
           movementStart = timestamp;
           movementIntensities = [movement];
         } else {
-          // Continue movement
           movementIntensities.push(movement);
         }
       } else {
         if (inMovement) {
-          // End movement
-          events.push({
-            startTime: movementStart,
-            endTime: timestamp,
-            durationMs: timestamp - movementStart,
-            peakIntensity: Math.max(...movementIntensities),
-            avgIntensity: movementIntensities.reduce((a, b) => a + b, 0) / movementIntensities.length
-          });
+          const duration = timestamp - movementStart;
+          if (duration >= 100) {
+            events.push({
+              startTime: movementStart,
+              endTime: timestamp,
+              durationMs: duration,
+              peakIntensity: Math.max(...movementIntensities),
+              avgIntensity: movementIntensities.reduce((a, b) => a + b, 0) / movementIntensities.length
+            });
+          }
           inMovement = false;
         }
       }
     }
 
-    // Handle ongoing movement at end
     if (inMovement && movementStart !== null) {
       const lastTimestamp = timestamps[timestamps.length - 1];
-      events.push({
-        startTime: movementStart,
-        endTime: lastTimestamp,
-        durationMs: lastTimestamp - movementStart,
-        peakIntensity: Math.max(...movementIntensities),
-        avgIntensity: movementIntensities.reduce((a, b) => a + b, 0) / movementIntensities.length
-      });
+      const duration = lastTimestamp - movementStart;
+      if (duration >= 100) {
+        events.push({
+          startTime: movementStart,
+          endTime: lastTimestamp,
+          durationMs: duration,
+          peakIntensity: Math.max(...movementIntensities),
+          avgIntensity: movementIntensities.reduce((a, b) => a + b, 0) / movementIntensities.length
+        });
+      }
     }
-
-    return events;
+    
+    return this.mergeCloseEvents(events, 200);
+  }
+  
+  mergeCloseEvents(events, maxGapMs) {
+    if (events.length === 0) return events;
+    
+    const merged = [events[0]];
+    
+    for (let i = 1; i < events.length; i++) {
+      const lastEvent = merged[merged.length - 1];
+      const currentEvent = events[i];
+      
+      const gap = currentEvent.startTime - lastEvent.endTime;
+      
+      if (gap < maxGapMs) {
+        lastEvent.endTime = currentEvent.endTime;
+        lastEvent.durationMs = lastEvent.endTime - lastEvent.startTime;
+        lastEvent.peakIntensity = Math.max(lastEvent.peakIntensity, currentEvent.peakIntensity);
+        lastEvent.avgIntensity = (lastEvent.avgIntensity + currentEvent.avgIntensity) / 2;
+      } else {
+        merged.push(currentEvent);
+      }
+    }
+    
+    return merged;
   }
 
   /**
@@ -231,12 +285,16 @@ class HeadFidgetVisualizer {
     const periods = [];
     let inStillness = false;
     let stillnessStart = null;
+    
+    const sorted = [...totalMovement].sort((a, b) => a - b);
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const adaptiveThreshold = Math.max(stillnessThreshold, q1 * 1.5);
 
     for (let i = 0; i < totalMovement.length; i++) {
       const movement = totalMovement[i];
       const timestamp = timestamps[i];
 
-      if (movement < stillnessThreshold) {
+      if (movement < adaptiveThreshold) {
         if (!inStillness) {
           inStillness = true;
           stillnessStart = timestamp;
@@ -256,7 +314,6 @@ class HeadFidgetVisualizer {
       }
     }
 
-    // Handle ongoing stillness at end
     if (inStillness && stillnessStart !== null) {
       const lastTimestamp = timestamps[timestamps.length - 1];
       const duration = lastTimestamp - stillnessStart;
@@ -290,29 +347,27 @@ class HeadFidgetVisualizer {
       return null;
     }
 
-    // Calculate velocities
     const pitchVel = this.calculateAngularVelocity(groupData.pitch, groupData.timestamps);
     const yawVel = this.calculateAngularVelocity(groupData.yaw, groupData.timestamps);
     const rollVel = this.calculateAngularVelocity(groupData.roll, groupData.timestamps);
 
-    // Calculate total movement
-    const totalMovement = this.calculateTotalMovement(pitchVel, yawVel, rollVel);
+    const pitchAccel = this.calculateAngularVelocity(pitchVel, groupData.timestamps);
+    const yawAccel = this.calculateAngularVelocity(yawVel, groupData.timestamps);
+    const rollAccel = this.calculateAngularVelocity(rollVel, groupData.timestamps);
 
-    // Smooth signal
+    const totalMovement = this.calculateTotalMovement(pitchVel, yawVel, rollVel);
+    const totalAcceleration = this.calculateTotalMovement(pitchAccel, yawAccel, rollAccel);
+
     const totalMovementSmooth = this.smoothSignal(totalMovement, this.smoothingWindow);
 
-    // Calculate fidget score
     const fidgetScore = this.calculateFidgetScore(totalMovementSmooth);
 
-    // Detect events
     const movementEvents = this.detectMovementEvents(totalMovementSmooth, groupData.timestamps);
     const stillnessPeriods = this.detectStillnessPeriods(totalMovementSmooth, groupData.timestamps);
 
-    // Calculate relative time in seconds
     const startTime = groupData.timestamps[0];
     const relativeTimeSeconds = groupData.timestamps.map(t => (t - startTime) / 1000.0);
 
-    // Calculate summary statistics
     const durationSeconds = (groupData.timestamps[groupData.timestamps.length - 1] - startTime) / 1000.0;
     const totalStillnessDuration = stillnessPeriods.reduce((sum, p) => sum + p.durationMs, 0);
 
@@ -327,7 +382,10 @@ class HeadFidgetVisualizer {
       stillnessPercentage: durationSeconds > 0 ? (totalStillnessDuration / (durationSeconds * 1000.0)) * 100 : 0,
       averagePitchDeviation: groupData.pitch.length > 0 ? this.calculateStd(groupData.pitch) : 0,
       averageYawDeviation: groupData.yaw.length > 0 ? this.calculateStd(groupData.yaw) : 0,
-      averageRollDeviation: groupData.roll.length > 0 ? this.calculateStd(groupData.roll) : 0
+      averageRollDeviation: groupData.roll.length > 0 ? this.calculateStd(groupData.roll) : 0,
+      averageVelocity: totalMovement.length > 0 ? totalMovement.reduce((a, b) => a + b, 0) / totalMovement.length : 0,
+      peakVelocity: totalMovement.length > 0 ? Math.max(...totalMovement) : 0,
+      averageAcceleration: totalAcceleration.length > 0 ? totalAcceleration.reduce((a, b) => a + b, 0) / totalAcceleration.length : 0
     };
 
     return {
@@ -341,8 +399,12 @@ class HeadFidgetVisualizer {
       pitchVelocity: pitchVel,
       yawVelocity: yawVel,
       rollVelocity: rollVel,
+      pitchAcceleration: pitchAccel,
+      yawAcceleration: yawAccel,
+      rollAcceleration: rollAccel,
       totalMovement,
       totalMovementSmooth,
+      totalAcceleration,
       fidgetScore,
       movementEvents,
       stillnessPeriods,
@@ -477,7 +539,7 @@ class HeadFidgetVisualizer {
         plugins: {
           title: {
             display: true,
-            text: 'Head Fidgeting Over Time (By Cycle & Phase)',
+            text: 'Head Movement Index Over Time',
             font: { size: 18, weight: 'bold' }
           },
           legend: {
@@ -516,7 +578,7 @@ class HeadFidgetVisualizer {
           y: {
             title: {
               display: true,
-              text: 'Fidget Score (0-100)',
+              text: 'Movement Index (0-100)',
               font: { size: 14 }
             },
             min: 0,
@@ -704,7 +766,7 @@ class HeadFidgetVisualizer {
       data: {
         labels: labels,
         datasets: [{
-          label: 'Average Fidget Score',
+          label: 'Mean Movement Index',
           data: avgScores,
           backgroundColor: backgroundColors.map(c => c.replace('rgb', 'rgba').replace(')', ', 0.6)')),
           borderColor: backgroundColors,
@@ -717,7 +779,7 @@ class HeadFidgetVisualizer {
         plugins: {
           title: {
             display: true,
-            text: 'Average Fidget Score Comparison',
+            text: 'Mean Movement Index Comparison',
             font: { size: 18, weight: 'bold' }
           },
           legend: {
@@ -728,7 +790,7 @@ class HeadFidgetVisualizer {
               afterLabel: (context) => {
                 const idx = context.dataIndex;
                 return [
-                  `Peak Score: ${peakScores[idx].toFixed(1)}`,
+                  `Peak Index: ${peakScores[idx].toFixed(1)}`,
                   `Movement Events: ${eventCounts[idx]}`
                 ];
               }
@@ -739,7 +801,7 @@ class HeadFidgetVisualizer {
           y: {
             title: {
               display: true,
-              text: 'Fidget Score (0-100)',
+              text: 'Movement Index (0-100)',
               font: { size: 14 }
             },
             min: 0,

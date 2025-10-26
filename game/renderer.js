@@ -8,46 +8,41 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-// Game variables
 let targets = [];
 let keys = {};
-let gameState = "start"; // 'start', 'instructions', 'phase1', 'phase2', 'complete'
+let gameState = "start";
 let animationTime = 0;
 let stars = [];
 let mousePos = { x: 0, y: 0 };
 let startButtonHover = false;
 let dataButtonHover = false;
 
-// Instruction screen variables
-let instructionPhase = null; // 'phase1' or 'phase2'
+let instructionPhase = null;
 let instructionStartTime = 0;
-let instructionDuration = 10000; // 10 seconds
+let instructionDuration = 10000;
 
-// Game cycle variables
 let currentCycle = 1;
-let totalCycles = 1;
-let currentPhase = 1; // 1 or 2
+let totalCycles = 2;
+let currentPhase = 1;
 
-// Phase 1: Visual Search variables
 let phase1Active = false;
 let phase1Timer = 0;
-let phase1Duration = 30000; // 30 seconds in milliseconds
+let phase1Duration = 30000;
 let phase1StartTime = 0;
-let trackingStars = []; // Stars to track with eyes
-let distractors = []; // Flashing comets as distractors
+let trackingStars = [];
+let distractors = [];
 let currentTrackingStar = null;
-let starSpawnInterval = 5000; // Spawn a new star every 2 seconds
+let starSpawnInterval = 5000;
 let lastStarSpawn = 0;
-let distractorSpawnInterval = 1000; // Spawn distractors every 3 seconds
+let distractorSpawnInterval = 1000;
 let lastDistractorSpawn = 0;
 
-// Phase 2: Fixation Task variables
 let phase2Active = false;
 let phase2Timer = 0;
-let phase2Duration = 15000; // 15 seconds in milliseconds
+let phase2Duration = 15000;
 let phase2StartTime = 0;
-let fixationStar = null; // The static yellow star to stare at
-let progressMeter = null; // Moving progress indicator
+let fixationStar = null;
+let progressMeter = null;
 
 let blinkData = [];
 let gazeData = [];
@@ -193,7 +188,6 @@ canvas.addEventListener("mousemove", (e) => {
   }
 });
 
-// Click handler
 canvas.addEventListener("click", (e) => {
   if (gameState === "start" && startButtonHover) {
     showInstructions("phase1");
@@ -204,13 +198,11 @@ canvas.addEventListener("click", (e) => {
   }
 });
 
-// Key controls
 document.addEventListener("keydown", (e) => {
   keys[e.code] = true;
   if (gameState === "start" && e.code === "Enter") {
     showInstructions("phase1");
   }
-  // ESC to return to menu
   if (e.code === "Escape") {
     if (
       gameState === "phase1" ||
@@ -238,7 +230,6 @@ function spawnTarget() {
 }
 setInterval(spawnTarget, starSpawnInterval);
 
-// Draw animated stary background
 function drawStarsBackground() {
   stars.forEach((star) => {
     ctx.save();
@@ -251,7 +242,6 @@ function drawStarsBackground() {
   });
 }
 
-// Create gradient background
 function drawGradientBackground() {
   const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
   gradient.addColorStop(0, "#0a0e27");

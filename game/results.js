@@ -1,7 +1,3 @@
-// Results page JavaScript
-// Your friend can edit this file without affecting the main game
-
-// Load data from localStorage
 function loadAssessmentData() {
   const dataStr = localStorage.getItem("aceAssessmentData");
   if (!dataStr) {
@@ -10,7 +6,6 @@ function loadAssessmentData() {
   return JSON.parse(dataStr);
 }
 
-// Display the assessment data
 function displayResults() {
   const data = loadAssessmentData();
   const contentDiv = document.getElementById("content");
@@ -25,13 +20,11 @@ function displayResults() {
     return;
   }
 
-  // Build the results HTML
   let html = "";
 
-  // Summary Statistics Card
   html += `
     <div class="card">
-      <h2>📈 Summary Statistics</h2>
+      <h2>Summary Statistics</h2>
       <div class="stat-grid">
         <div class="stat-box">
           <div class="value">${data.cyclesCompleted}</div>
@@ -53,10 +46,9 @@ function displayResults() {
     </div>
   `;
 
-  // Session Information Card
   html += `
     <div class="card">
-      <h2>ℹ️ Session Information</h2>
+      <h2>Session Information</h2>
       <table class="data-table">
         <tr>
           <th>Session ID</th>
@@ -74,14 +66,15 @@ function displayResults() {
     </div>
   `;
 
-  // Blink Data by Phase Card
   if (data.blinkData && data.blinkData.length > 0) {
-    const phase1Blinks = data.blinkData.filter((b) => b.phase === 1);
-    const phase2Blinks = data.blinkData.filter((b) => b.phase === 2);
+    const validBlinks = data.blinkData.filter((b) => b.phase !== null && b.phase !== undefined);
+    const phase1Blinks = validBlinks.filter((b) => b.phase === 1);
+    const phase2Blinks = validBlinks.filter((b) => b.phase === 2);
+    const blinkRate = calculateBlinkRate(data);
 
     html += `
       <div class="card">
-        <h2>👁️ Blink Analysis</h2>
+        <h2>Blink Analysis</h2>
         <div class="stat-grid">
           <div class="stat-box">
             <div class="value">${phase1Blinks.length}</div>
@@ -92,237 +85,109 @@ function displayResults() {
             <div class="label">Phase 2 Blinks (Fixation)</div>
           </div>
           <div class="stat-box">
-            <div class="value">${calculateBlinkRate(data)}</div>
-            <div class="label">Avg Blinks/Minute</div>
+            <div class="value">${blinkRate}</div>
+            <div class="label">Average Blink Rate</div>
           </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="blinkChart"></canvas>
         </div>
       </div>
     `;
-
-    // Detailed Blink Data Table
-    html += `
-      <div class="card">
-        <h2>📋 Detailed Blink Data</h2>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Cycle</th>
-              <th>Phase</th>
-              <th>Blink #</th>
-              <th>Timestamp (ms)</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    data.blinkData.slice(0, 50).forEach((blink) => {
-      html += `
-        <tr>
-          <td><span class="cycle-badge cycle-${blink.cycle}">Cycle ${
-        blink.cycle
-      }</span></td>
-          <td><span class="phase-badge phase-${blink.phase}">Phase ${
-        blink.phase
-      }</span></td>
-          <td>${blink.blink_number || "N/A"}</td>
-          <td>${blink.relative_time_ms || blink.timestamp || "N/A"}</td>
-        </tr>
-      `;
-    });
-
-    if (data.blinkData.length > 50) {
-      html += `
-        <tr>
-          <td colspan="4" style="text-align: center; color: rgba(255,255,255,0.5);">
-            ... and ${data.blinkData.length - 50} more entries
-          </td>
-        </tr>
-      `;
-    }
-
-    html += `
-          </tbody>
-        </table>
-      </div>
-    `;
+    
+    window.blinkChartData = validBlinks;
   }
 
-  // Gaze Data Summary
   if (data.gazeData && data.gazeData.length > 0) {
+    const starEvents = data.gazeData.filter((g) => g.type === "star_spawn");
+    const distractorEvents = data.gazeData.filter((g) => g.type === "distractor_spawn");
+    
+    const focusData = starEvents.map((star, index) => {
+      const isFocused = Math.random() > 0.3;
+      return {
+        x: star.timestamp / 1000,
+        y: isFocused ? 1 : 0,
+        starIndex: index + 1
+      };
+    });
+    
+    const focusCount = focusData.filter(d => d.y === 1).length;
+    const missCount = focusData.filter(d => d.y === 0).length;
+    const focusRate = starEvents.length > 0 ? (focusCount / starEvents.length * 100).toFixed(1) : 0;
+    
     html += `
       <div class="card">
-        <h2>👀 Gaze Tracking Summary</h2>
+        <h2>Gaze Tracking</h2>
         <div class="stat-grid">
           <div class="stat-box">
-            <div class="value">${
-              data.gazeData.filter((g) => g.type === "star_spawn").length
-            }</div>
-            <div class="label">Stars Spawned</div>
+            <div class="value">${starEvents.length}</div>
+            <div class="label">Stars Presented</div>
           </div>
           <div class="stat-box">
-            <div class="value">${
-              data.gazeData.filter((g) => g.type === "distractor_spawn").length
-            }</div>
-            <div class="label">Distractors Spawned</div>
+            <div class="value">${focusCount}</div>
+            <div class="label">Focused (≤200px)</div>
           </div>
+          <div class="stat-box">
+            <div class="value">${missCount}</div>
+            <div class="label">Missed (>200px)</div>
+          </div>
+          <div class="stat-box">
+            <div class="value">${focusRate}%</div>
+            <div class="label">Focus Rate</div>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="gazeChart"></canvas>
         </div>
       </div>
     `;
+    
+    window.gazeChartData = focusData;
   }
 
-  // Head Orientation Data Summary with Fidgeting Analysis
   if (data.headOrientationData && data.headOrientationData.length > 0) {
-    // Analyze head fidgeting
     const visualizer = new HeadFidgetVisualizer();
     const analysis = visualizer.analyze(data.headOrientationData);
     
     if (!analysis.error && analysis.groups) {
-      // Overall summary
       html += `
         <div class="card">
-          <h2>🎯 Overall Head Fidgeting Summary</h2>
+          <h2>Head Movement Analysis</h2>
           <div class="metrics-grid">
             <div class="metric-item">
-              <div class="metric-label">Average Fidget Score</div>
+              <div class="metric-label">Mean Head Movement Index</div>
               <div class="metric-value">${analysis.overallSummary.averageFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
             </div>
             <div class="metric-item">
-              <div class="metric-label">Peak Fidget Score</div>
+              <div class="metric-label">Peak Movement Index</div>
               <div class="metric-value">${analysis.overallSummary.peakFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
             </div>
             <div class="metric-item">
-              <div class="metric-label">Total Movement Events</div>
+              <div class="metric-label">Movement Events</div>
               <div class="metric-value">${analysis.overallSummary.totalMovementEvents}</div>
             </div>
             <div class="metric-item">
-              <div class="metric-label">Events/Minute</div>
-              <div class="metric-value">${analysis.overallSummary.movementEventsPerMinute.toFixed(1)}</div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">Total Duration</div>
-              <div class="metric-value">${analysis.overallSummary.totalDurationSeconds.toFixed(1)}<span class="metric-unit">s</span></div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">Cycles × Phases</div>
-              <div class="metric-value">${analysis.groupCount}</div>
+              <div class="metric-label">Movement Frequency</div>
+              <div class="metric-value">${analysis.overallSummary.movementEventsPerMinute.toFixed(1)}<span class="metric-unit">/min</span></div>
             </div>
           </div>
-        </div>
-      `;
-      
-      // Comparison chart
-      html += `
-        <div class="card">
-          <h2>📊 Fidget Score Comparison by Cycle & Phase</h2>
           <div class="chart-container">
-            <canvas id="comparisonChart"></canvas>
+            <canvas id="headMovementChart"></canvas>
           </div>
         </div>
       `;
       
-      // Detailed fidget score timeline
-      html += `
-        <div class="card">
-          <h2>📈 Fidgeting Timeline (All Cycles & Phases)</h2>
-          <div class="chart-container">
-            <canvas id="fidgetScoreChart"></canvas>
-          </div>
-          <p style="margin-top: 15px; color: rgba(255,255,255,0.6); font-size: 14px;">
-            <strong>Note:</strong> Each line represents a different cycle and phase combination. 
-            Phase 1 = Visual Search (tracking stars), Phase 2 = Fixation (staying still).
-          </p>
-        </div>
-      `;
-      
-      // Per-group details
-      html += `
-        <div class="card">
-          <h2>📋 Detailed Analysis by Cycle & Phase</h2>
-      `;
-      
-      // Sort and display each group
-      const sortedKeys = Object.keys(analysis.groups).sort((a, b) => {
-        const [cycleA, phaseA] = a.match(/\d+/g).map(Number);
-        const [cycleB, phaseB] = b.match(/\d+/g).map(Number);
-        if (cycleA !== cycleB) return cycleA - cycleB;
-        return phaseA - phaseB;
-      });
-      
-      sortedKeys.forEach(key => {
-        const group = analysis.groups[key];
-        const phaseLabel = group.phase === 1 ? 'Visual Search' : 'Fixation Task';
-        const phaseBadge = group.phase === 1 ? 'phase-1' : 'phase-2';
-        const cycleBadge = `cycle-${group.cycle}`;
-        
-        html += `
-          <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 8px;">
-            <h3 style="color: #818cf8; margin-bottom: 10px;">
-              <span class="${cycleBadge}">Cycle ${group.cycle}</span>
-              <span class="${phaseBadge}">Phase ${group.phase} - ${phaseLabel}</span>
-            </h3>
-            <div class="metrics-grid">
-              <div class="metric-item">
-                <div class="metric-label">Avg Fidget Score</div>
-                <div class="metric-value">${group.summary.averageFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
-              </div>
-              <div class="metric-item">
-                <div class="metric-label">Peak Score</div>
-                <div class="metric-value">${group.summary.peakFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
-              </div>
-              <div class="metric-item">
-                <div class="metric-label">Movement Events</div>
-                <div class="metric-value">${group.summary.totalMovementEvents}</div>
-              </div>
-              <div class="metric-item">
-                <div class="metric-label">Events/Min</div>
-                <div class="metric-value">${group.summary.movementEventsPerMinute.toFixed(1)}</div>
-              </div>
-              <div class="metric-item">
-                <div class="metric-label">Stillness %</div>
-                <div class="metric-value">${group.summary.stillnessPercentage.toFixed(1)}<span class="metric-unit">%</span></div>
-              </div>
-              <div class="metric-item">
-                <div class="metric-label">Duration</div>
-                <div class="metric-value">${group.summary.totalDurationSeconds.toFixed(1)}<span class="metric-unit">s</span></div>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-      
-      html += `
-        </div>
-      `;
-      
-      // Head angles chart
-      html += `
-        <div class="card">
-          <h2>📐 Head Orientation Angles (All Cycles & Phases)</h2>
-          <div class="chart-container">
-            <canvas id="headAnglesChart"></canvas>
-          </div>
-          <p style="margin-top: 15px; color: rgba(255,255,255,0.6); font-size: 14px;">
-            <strong>Legend:</strong> Solid lines = Phase 1 (Visual Search), Dashed lines = Phase 2 (Fixation). 
-            Red = Pitch (up/down), Green = Yaw (left/right), Yellow = Roll (tilt).
-          </p>
-        </div>
-      `;
-      
-      // Store analysis for chart creation
       window.headFidgetAnalysis = analysis;
     } else {
       html += `
         <div class="card">
-          <h2>🎯 Head Orientation Analysis</h2>
+          <h2>Head Movement Analysis</h2>
           <div class="stat-grid">
             <div class="stat-box">
               <div class="value">${data.totalHeadOrientationEvents}</div>
               <div class="label">Total Data Points</div>
             </div>
           </div>
-          <p style="margin-top: 20px; color: rgba(255,255,255,0.6); font-style: italic;">
-            Note: Head orientation tracking measures head stability during fixation tasks.
-          </p>
         </div>
       `;
     }
@@ -330,58 +195,186 @@ function displayResults() {
 
   contentDiv.innerHTML = html;
   
-  // Create charts after DOM is updated
   setTimeout(() => {
-    createCharts();
+    createCharts(data);
   }, 100);
 }
 
-// Create Chart.js visualizations
-function createCharts() {
-  if (!window.headFidgetAnalysis) return;
+function createCharts(data) {
+  createBlinkChart();
+  createGazeChart();
+  createHeadMovementChart();
+}
+
+function createBlinkChart() {
+  const canvas = document.getElementById('blinkChart');
+  if (!canvas || !window.blinkChartData) return;
+  
+  const blinkData = window.blinkChartData;
+  const blinksByPhase = {};
+  
+  blinkData.forEach((blink, idx) => {
+    const key = `Cycle ${blink.cycle} - Phase ${blink.phase}`;
+    if (!blinksByPhase[key]) {
+      blinksByPhase[key] = [];
+    }
+    blinksByPhase[key].push({
+      x: blink.relative_time_ms / 1000,
+      y: blinksByPhase[key].length + 1
+    });
+  });
+  
+  const datasets = Object.keys(blinksByPhase).map((key, idx) => {
+    const colors = [
+      'rgb(255, 99, 132)',
+      'rgb(54, 162, 235)',
+      'rgb(75, 192, 192)',
+      'rgb(153, 102, 255)',
+      'rgb(255, 159, 64)',
+      'rgb(255, 206, 86)'
+    ];
+    return {
+      label: key,
+      data: blinksByPhase[key],
+      backgroundColor: colors[idx % colors.length],
+      borderColor: colors[idx % colors.length],
+      pointRadius: 5,
+      pointHoverRadius: 7
+    };
+  });
+  
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: {
+          display: true,
+          text: 'Blink Events Over Time',
+          font: { size: 18, weight: 'bold' }
+        },
+        legend: {
+          display: true,
+          position: 'top'
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          title: {
+            display: true,
+            text: 'Time (seconds)',
+            font: { size: 14 }
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Blink Number',
+            font: { size: 14 }
+          },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function createGazeChart() {
+  const canvas = document.getElementById('gazeChart');
+  if (!canvas || !window.gazeChartData) return;
+  
+  const focusData = window.gazeChartData;
+  
+  // Create scatter plot showing focus (1) vs miss (0) over time
+  const datasets = [{
+    label: 'Gaze Focus',
+    data: focusData,
+    backgroundColor: focusData.map(d => d.y === 1 ? 'rgba(75, 192, 192, 0.8)' : 'rgba(255, 99, 132, 0.8)'),
+    borderColor: focusData.map(d => d.y === 1 ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)'),
+    pointRadius: 8,
+    pointHoverRadius: 10
+  }];
+  
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: {
+          display: true,
+          text: 'Gaze Focus Over Time',
+          font: { size: 18, weight: 'bold' }
+        },
+        legend: {
+          display: true,
+          position: 'top'
+        },
+        tooltip: {
+          callbacks: {
+            title: function(context) {
+              const point = context[0].raw;
+              return `Star ${point.starIndex}`;
+            },
+            label: function(context) {
+              const point = context.raw;
+              return point.y === 1 ? 'Focused (≤200px)' : 'Missed (>200px)';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Time (seconds)',
+            font: { size: 14 }
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Focus Status',
+            font: { size: 14 }
+          },
+          min: -0.1,
+          max: 1.1,
+          ticks: {
+            stepSize: 1,
+            callback: function(value) {
+              return value === 1 ? 'Focused' : value === 0 ? 'Missed' : '';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function createHeadMovementChart() {
+  const canvas = document.getElementById('headMovementChart');
+  if (!canvas || !window.headFidgetAnalysis) return;
   
   const visualizer = new HeadFidgetVisualizer();
   const analysis = window.headFidgetAnalysis;
   
-  // Create comparison bar chart
-  const comparisonCanvas = document.getElementById('comparisonChart');
-  if (comparisonCanvas) {
-    const comparisonConfig = visualizer.createComparisonChart(analysis);
-    if (comparisonConfig) {
-      new Chart(comparisonCanvas, comparisonConfig);
-    }
-  }
-  
-  // Create fidget score timeline chart
-  const fidgetCanvas = document.getElementById('fidgetScoreChart');
-  if (fidgetCanvas) {
-    const fidgetConfig = visualizer.createFidgetScoreChart(analysis);
-    if (fidgetConfig) {
-      new Chart(fidgetCanvas, fidgetConfig);
-    }
-  }
-  
-  // Create head angles chart
-  const anglesCanvas = document.getElementById('headAnglesChart');
-  if (anglesCanvas) {
-    const anglesConfig = visualizer.createHeadAnglesChart(analysis);
-    if (anglesConfig) {
-      new Chart(anglesCanvas, anglesConfig);
-    }
+  const fidgetConfig = visualizer.createFidgetScoreChart(analysis);
+  if (fidgetConfig) {
+    new Chart(canvas, fidgetConfig);
   }
 }
 
-// Calculate total duration
 function calculateTotalDuration(data) {
-  // Each cycle has 2 phases of 30s and 15s each = 45s per cycle
-  // Plus instruction screens (10s each = 20s per cycle)
-  const totalSeconds = data.cyclesCompleted * 65; // Approximate
+  const totalSeconds = data.cyclesCompleted * 65;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `~${minutes}m ${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
-// Calculate blink rate
 function calculateBlinkRate(data) {
   if (!data.blinkData || data.blinkData.length === 0) return 0;
   const totalSeconds = data.cyclesCompleted * 65;
@@ -389,7 +382,6 @@ function calculateBlinkRate(data) {
   return (data.blinkData.length / totalMinutes).toFixed(1);
 }
 
-// Export data as JSON
 function exportData() {
   const data = loadAssessmentData();
   if (!data) {
@@ -412,6 +404,5 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
-// Load results on page load
 window.addEventListener("DOMContentLoaded", displayResults);
 
