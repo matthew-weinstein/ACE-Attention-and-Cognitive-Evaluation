@@ -1,7 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require("electron/main");
 const BlinkTracker = require("./blink_integration");
+const HeadTracker = require("./head_integration");
 
 let blinkTracker = null;
+let headTracker = null;
 let mainWindow = null;
 
 const createWindow = () => {
@@ -31,12 +33,12 @@ const createWindow = () => {
   });
 
   blinkTracker.on("trackingStarted", (data) => {
-    console.log("Tracking started:", data);
+    console.log("Blink tracking started:", data);
     mainWindow.webContents.send("blink-tracking-started", data);
   });
 
   blinkTracker.on("trackingStopped", (data) => {
-    console.log("Tracking stopped:", data);
+    console.log("Blink tracking stopped:", data);
     mainWindow.webContents.send("blink-tracking-stopped", data);
   });
 
@@ -45,12 +47,52 @@ const createWindow = () => {
     mainWindow.webContents.send("blink-tracker-error", error);
   });
 
-  // Initialize the Python process
-  blinkTracker
-    .initialize()
-    .then(() => console.log("Blink tracker initialized successfully"))
+  // Initialize head tracker
+  headTracker = new HeadTracker();
+
+  headTracker.on("ready", (data) => {
+    console.log("Head tracker ready:", data);
+    mainWindow.webContents.send("head-tracker-ready", data);
+  });
+
+  headTracker.on("headPose", (data) => {
+    console.log("Head pose detected:", data);
+    mainWindow.webContents.send("head-pose-detected", data);
+  });
+
+  headTracker.on("blink", (data) => {
+    console.log("Blink detected:", data);
+    mainWindow.webContents.send("blink-detected", data);
+  });
+
+  headTracker.on("trackingStarted", (data) => {
+    console.log("Head tracking started:", data);
+    mainWindow.webContents.send("head-tracking-started", data);
+  });
+
+  headTracker.on("trackingStopped", (data) => {
+    console.log("Head tracking stopped:", data);
+    mainWindow.webContents.send("head-tracking-stopped", data);
+  });
+
+  headTracker.on("calibrated", (data) => {
+    console.log("Head tracker calibrated:", data);
+    mainWindow.webContents.send("head-tracker-calibrated", data);
+  });
+
+  headTracker.on("error", (error) => {
+    console.error("Head tracker error:", error);
+    mainWindow.webContents.send("head-tracker-error", error);
+  });
+
+  // Initialize both Python processes
+  Promise.all([
+    blinkTracker.initialize(),
+    headTracker.initialize()
+  ])
+    .then(() => console.log("All trackers initialized successfully"))
     .catch((error) =>
-      console.error("Failed to initialize blink tracker:", error)
+      console.error("Failed to initialize trackers:", error)
     );
 };
 
@@ -65,9 +107,12 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  // Cleanup blink tracker
+  // Cleanup trackers
   if (blinkTracker) {
     blinkTracker.shutdown();
+  }
+  if (headTracker) {
+    headTracker.shutdown();
   }
 
   if (process.platform !== "darwin") {
@@ -93,6 +138,35 @@ ipcMain.handle("stop-blink-tracking", async () => {
 ipcMain.handle("ping-blink-tracker", async () => {
   if (blinkTracker) {
     return blinkTracker.ping();
+  }
+  return false;
+});
+
+// IPC handlers for head tracking
+ipcMain.handle("start-head-tracking", async (event, sessionId) => {
+  if (headTracker) {
+    return headTracker.startTracking(sessionId);
+  }
+  return false;
+});
+
+ipcMain.handle("stop-head-tracking", async () => {
+  if (headTracker) {
+    return headTracker.stopTracking();
+  }
+  return false;
+});
+
+ipcMain.handle("calibrate-head-tracker", async () => {
+  if (headTracker) {
+    return headTracker.calibrate();
+  }
+  return false;
+});
+
+ipcMain.handle("ping-head-tracker", async () => {
+  if (headTracker) {
+    return headTracker.ping();
   }
   return false;
 });

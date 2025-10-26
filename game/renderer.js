@@ -25,7 +25,7 @@ let instructionDuration = 10000; // 10 seconds
 
 // Game cycle variables
 let currentCycle = 1;
-let totalCycles = 3;
+let totalCycles = 1;
 let currentPhase = 1; // 1 or 2
 
 // Phase 1: Visual Search variables
@@ -49,16 +49,14 @@ let phase2StartTime = 0;
 let fixationStar = null; // The static yellow star to stare at
 let progressMeter = null; // Moving progress indicator
 
-// Unified data collection arrays (stores all data for entire test session)
-let blinkData = []; // Blink events with phase info
-let gazeData = []; // Gaze tracking data with phase info
-let headOrientationData = []; // Head orientation data with phase info
+let blinkData = [];
+let gazeData = [];
+let headOrientationData = [];
 
-// Tracking variables
 let blinkTrackerReady = false;
+let headTrackerReady = false;
 let sessionId = null;
 
-// Initialize blink tracker event listeners
 if (window.blinkTracker) {
   window.blinkTracker.onReady((data) => {
     console.log("Blink tracker ready:", data);
@@ -66,9 +64,8 @@ if (window.blinkTracker) {
   });
 
   window.blinkTracker.onBlinkDetected((data) => {
-    console.log("Blink detected:", data);
+    console.log("👁️ BLINK DETECTED!", data);
 
-    // Add phase and cycle information to blink data
     const blinkEntry = {
       ...data,
       phase: phase1Active ? 1 : phase2Active ? 2 : null,
@@ -76,10 +73,11 @@ if (window.blinkTracker) {
       sessionId: sessionId,
     };
     blinkData.push(blinkEntry);
+    console.log(`   Added to blinkData. Total blinks now: ${blinkData.length}`);
   });
 
   window.blinkTracker.onTrackingStarted((data) => {
-    console.log("Blink tracking started:", data);
+    console.log("✓✓✓ Blink tracking STARTED successfully:", data);
   });
 
   window.blinkTracker.onTrackingStopped((data) => {
@@ -92,7 +90,59 @@ if (window.blinkTracker) {
   });
 }
 
-// Initialize stars for background
+if (window.headTracker) {
+  console.log("✓ window.headTracker is available");
+  
+  window.headTracker.onReady((data) => {
+    console.log("✓ Head tracker READY:", data);
+    headTrackerReady = true;
+  });
+
+  window.headTracker.onHeadPoseDetected((data) => {
+    const headEntry = {
+      ...data,
+      phase: phase1Active ? 1 : phase2Active ? 2 : null,
+      cycle: currentCycle,
+      sessionId: sessionId,
+    };
+    headOrientationData.push(headEntry);
+    
+    if (headOrientationData.length % 100 === 0) {
+      console.log(`   📊 Head data collected: ${headOrientationData.length} entries`);
+    }
+  });
+
+  window.headTracker.onTrackingStarted((data) => {
+    console.log("✓ Head tracking STARTED:", data);
+  });
+
+  window.headTracker.onTrackingStopped((data) => {
+    console.log("✓ Head tracking STOPPED:", data);
+  });
+
+  window.headTracker.onCalibrated((data) => {
+    console.log("✓ Head tracker calibrated:", data);
+  });
+
+  window.headTracker.onError((error) => {
+    console.error("❌ Head tracker ERROR:", error);
+  });
+} else {
+  console.error("❌ window.headTracker is NOT available - check preload.js");
+}
+
+setInterval(() => {
+  if (phase1Active || phase2Active) {
+    console.log('📊 DATA STATUS:', {
+      phase: phase1Active ? 1 : phase2Active ? 2 : 0,
+      cycle: currentCycle,
+      blinkCount: blinkData.length,
+      headCount: headOrientationData.length,
+      gazeCount: gazeData.length
+    });
+  }
+}, 10000);
+
 function initStars() {
   stars = [];
   for (let i = 0; i < 200; i++) {
@@ -107,15 +157,12 @@ function initStars() {
 }
 initStars();
 
-// Reinitialize stars on resize
 window.addEventListener("resize", initStars);
 
-// Mouse tracking
 canvas.addEventListener("mousemove", (e) => {
   mousePos.x = e.clientX;
   mousePos.y = e.clientY;
 
-  // Check if hovering over start button
   const buttonWidth = 350;
   const buttonHeight = 70;
   const buttonX = canvas.width / 2 - buttonWidth / 2;
@@ -128,7 +175,6 @@ canvas.addEventListener("mousemove", (e) => {
     mousePos.y <= buttonY + buttonHeight &&
     gameState === "start";
 
-  // Check if hovering over data button on complete screen
   if (gameState === "complete") {
     const dataButtonWidth = 250;
     const dataButtonHeight = 60;
@@ -180,7 +226,6 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("keyup", (e) => (keys[e.code] = false));
 
-// Spawn random targets
 function spawnTarget() {
   let x = Math.random() * (canvas.width - 60) + 30;
   let y = Math.random() * 300 + 50;
@@ -515,21 +560,38 @@ function startPhase1() {
   lastStarSpawn = 0;
   lastDistractorSpawn = 0;
 
-  // Generate unique session ID for this phase
   sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
   
-  // Start blink tracking
+  console.log("🚀 Starting Phase 1 - Session ID:", sessionId);
+  console.log("   Blink tracker ready?", blinkTrackerReady);
+  console.log("   Head tracker ready?", headTrackerReady);
+  
   if (window.blinkTracker && blinkTrackerReady) {
+    console.log("   → Starting blink tracker...");
     window.blinkTracker
       .start(sessionId)
       .then(() => {
-        console.log("Blink tracking started for session:", sessionId);
+        console.log("   ✓ Blink tracking started");
       })
       .catch((error) => {
-        console.error("Failed to start blink tracking:", error);
+        console.error("   ❌ Failed to start blink tracking:", error);
       });
   } else {
-    console.warn("Blink tracker not ready or not available");
+    console.warn("   ⚠️ Blink tracker not ready or not available");
+  }
+
+  if (window.headTracker && headTrackerReady) {
+    console.log("   → Starting head tracker...");
+    window.headTracker
+      .start(sessionId)
+      .then(() => {
+        console.log("   ✓ Head tracking started");
+      })
+      .catch((error) => {
+        console.error("   ❌ Failed to start head tracking:", error);
+      });
+  } else {
+    console.warn("   ⚠️ Head tracker not ready or not available");
   }
 }
 
@@ -546,29 +608,26 @@ function resetToStart() {
   currentCycle = 1;
   currentPhase = 1;
 
-  // Reset all data collection arrays
   blinkData = [];
   gazeData = [];
   headOrientationData = [];
   
-  // Stop blink tracking if active
   if (window.blinkTracker) {
-    window.blinkTracker
-      .stop()
-      .then(() => {
-        console.log("Blink tracking stopped");
-      })
-      .catch((error) => {
-        console.error("Failed to stop blink tracking:", error);
-      });
+    window.blinkTracker.stop().catch((error) => {
+      console.error("Failed to stop blink tracking:", error);
+    });
+  }
+
+  if (window.headTracker) {
+    window.headTracker.stop().catch((error) => {
+      console.error("Failed to stop head tracking:", error);
+    });
   }
 }
 
-// Spawn a tracking star
 function spawnTrackingStar() {
-  // Add larger margins to keep stars away from edges for better eye tracking
-  const marginX = 150; // Horizontal margin from edges
-  const marginY = 150; // Vertical margin from top and bottom
+  const marginX = 150;
+  const marginY = 150;
 
   const star = {
     x: Math.random() * (canvas.width - marginX * 2) + marginX,
@@ -617,7 +676,6 @@ function spawnDistractor() {
   });
 }
 
-// Update tracking stars
 function updateTrackingStars() {
   trackingStars.forEach((star, index) => {
     star.lifetime++;
@@ -659,7 +717,6 @@ function updateDistractors() {
   });
 }
 
-// Draw tracking stars
 function drawTrackingStars() {
   trackingStars.forEach((star) => {
     ctx.save();
@@ -781,40 +838,33 @@ function drawDistractors() {
   });
 }
 
-// Phase 1 game loop
 function phase1Loop(currentTime) {
   phase1Timer = currentTime - phase1StartTime;
 
-  // Check if phase 1 is complete
   if (phase1Timer >= phase1Duration) {
     completePhase1();
     return;
   }
 
-  // Spawn tracking stars
   if (currentTime - lastStarSpawn >= starSpawnInterval) {
     spawnTrackingStar();
     lastStarSpawn = currentTime;
   }
 
-  // Spawn distractors
   if (currentTime - lastDistractorSpawn >= distractorSpawnInterval) {
     spawnDistractor();
     lastDistractorSpawn = currentTime;
   }
 
-  // Update
   updateTrackingStars();
   updateDistractors();
 
-  // Draw
   drawGradientBackground();
   drawStarsBackground();
   drawTrackingStars();
   drawDistractors();
 }
 
-// Complete Phase 1 and move to next phase
 function completePhase1() {
   console.log(`Phase 1 Complete! (Cycle ${currentCycle})`);
   console.log(
@@ -830,68 +880,87 @@ function completePhase1() {
 
   phase1Active = false;
 
-  // Stop blink tracking
+  const stopPromises = [];
+  
   if (window.blinkTracker) {
-    window.blinkTracker
-      .stop()
-      .then(() => {
-        console.log("Blink tracking stopped");
-        // Show instructions for Phase 2
-        showInstructions("phase2");
-      })
-      .catch((error) => {
+    stopPromises.push(
+      window.blinkTracker.stop().catch((error) => {
         console.error("Failed to stop blink tracking:", error);
-        // Still show instructions for Phase 2
-        showInstructions("phase2");
-      });
-  } else {
-    // Show instructions for Phase 2
-    showInstructions("phase2");
+      })
+    );
   }
+
+  if (window.headTracker) {
+    stopPromises.push(
+      window.headTracker.stop().catch((error) => {
+        console.error("Failed to stop head tracking:", error);
+      })
+    );
+  }
+
+  Promise.all(stopPromises)
+    .then(() => {
+      console.log("All trackers stopped");
+      showInstructions("phase2");
+    })
+    .catch(() => {
+      showInstructions("phase2");
+    });
 }
 
-// Initialize Phase 2
 function startPhase2() {
   gameState = "phase2";
   phase2Active = true;
   phase2StartTime = Date.now();
   phase2Timer = 0;
 
-  // Generate unique session ID for this phase
   sessionId = `phase2_cycle${currentCycle}_${Date.now()}`;
 
-  // Create centered fixation star
   fixationStar = {
     x: canvas.width / 2,
     y: canvas.height / 2,
     radius: 25,
   };
 
-  // Create progress meter that moves horizontally across the screen
   progressMeter = {
-    x: 50, // Start position
+    x: 50,
     y: canvas.height / 2,
     radius: 25,
     startX: 50,
     endX: canvas.width - 50,
   };
 
-  // Start blink tracking for Phase 2
+  console.log("🚀 Starting Phase 2 - Session ID:", sessionId);
+  
   if (window.blinkTracker && blinkTrackerReady) {
+    console.log("   → Starting blink tracker for Phase 2...");
     window.blinkTracker
       .start(sessionId)
       .then(() => {
-        console.log("Blink tracking started for Phase 2 session:", sessionId);
+        console.log("   ✓ Blink tracking started for Phase 2");
       })
       .catch((error) => {
-        console.error("Failed to start blink tracking:", error);
+        console.error("   ❌ Failed to start blink tracking:", error);
       });
   } else {
-    console.warn("Blink tracker not ready or not available");
+    console.warn("   ⚠️ Blink tracker not ready for Phase 2");
+  }
+
+  if (window.headTracker && headTrackerReady) {
+    console.log("   → Starting head tracker for Phase 2...");
+    window.headTracker
+      .start(sessionId)
+      .then(() => {
+        console.log("   ✓ Head tracking started for Phase 2");
+      })
+      .catch((error) => {
+        console.error("   ❌ Failed to start head tracking:", error);
+      });
+  } else {
+    console.warn("   ⚠️ Head tracker not ready for Phase 2");
   }
 }
 
-// Draw fixation star
 function drawFixationStar() {
   if (!fixationStar) return;
 
@@ -945,7 +1014,6 @@ function drawFixationStar() {
   ctx.restore();
 }
 
-// Draw progress meter
 function drawProgressMeter() {
   if (!progressMeter) return;
 
@@ -997,17 +1065,14 @@ function drawStaticStarsBackground() {
   });
 }
 
-// Phase 2 game loop
 function phase2Loop(currentTime) {
   phase2Timer = currentTime - phase2StartTime;
 
-  // Check if phase 2 is complete
   if (phase2Timer >= phase2Duration) {
     completePhase2();
     return;
   }
 
-  // Update progress meter position
   if (progressMeter) {
     const progress = phase2Timer / phase2Duration;
     progressMeter.x =
@@ -1015,24 +1080,12 @@ function phase2Loop(currentTime) {
       (progressMeter.endX - progressMeter.startX) * progress;
   }
 
-  // Record head orientation data (simulated for now)
-  headOrientationData.push({
-    timestamp: phase2Timer,
-    type: "head_orientation",
-    phase: 2,
-    cycle: currentCycle,
-    sessionId: sessionId,
-    simulated: true,
-  });
-
-  // Draw
   drawGradientBackground();
   drawStaticStarsBackground();
   drawFixationStar();
   drawProgressMeter();
 }
 
-// Complete Phase 2 and move to next cycle or finish
 function completePhase2() {
   console.log(`Phase 2 Complete! (Cycle ${currentCycle})`);
   console.log(
@@ -1050,31 +1103,39 @@ function completePhase2() {
 
   phase2Active = false;
 
-  // Stop blink tracking
+  const stopPromises = [];
+  
   if (window.blinkTracker) {
-    window.blinkTracker
-      .stop()
-      .then(() => {
-        console.log("Blink tracking stopped");
-        proceedAfterPhase2();
-      })
-      .catch((error) => {
+    stopPromises.push(
+      window.blinkTracker.stop().catch((error) => {
         console.error("Failed to stop blink tracking:", error);
-        proceedAfterPhase2();
-      });
-  } else {
-    proceedAfterPhase2();
+      })
+    );
   }
+
+  if (window.headTracker) {
+    stopPromises.push(
+      window.headTracker.stop().catch((error) => {
+        console.error("Failed to stop head tracking:", error);
+      })
+    );
+  }
+
+  Promise.all(stopPromises)
+    .then(() => {
+      console.log("All trackers stopped");
+      proceedAfterPhase2();
+    })
+    .catch(() => {
+      proceedAfterPhase2();
+    });
 }
 
 function proceedAfterPhase2() {
-  // Check if we need to continue with more cycles
   if (currentCycle < totalCycles) {
     currentCycle++;
-    // Show instructions for next cycle Phase 1
     showInstructions("phase1");
   } else {
-    // All cycles complete - show completion screen
     console.log("=== TEST COMPLETE ===");
     console.log(`Total Blinks Recorded: ${blinkData.length}`);
     console.log(`Total Gaze Events Recorded: ${gazeData.length}`);
@@ -1087,11 +1148,9 @@ function proceedAfterPhase2() {
   }
 }
 
-// Show completion screen
 function showCompletionScreen() {
   gameState = "complete";
   
-  // Save assessment data to localStorage
   const assessmentData = {
     cyclesCompleted: totalCycles,
     sessionId: sessionId,
@@ -1105,10 +1164,14 @@ function showCompletionScreen() {
   };
   
   localStorage.setItem('aceAssessmentData', JSON.stringify(assessmentData));
-  console.log('Assessment data saved to localStorage');
+  console.log('✓ Assessment data saved to localStorage');
+  console.log('   Total Blinks:', blinkData.length);
+  console.log('   Total Gaze Events:', gazeData.length);
+  console.log('   Total Head Movements:', headOrientationData.length);
+  console.log('   Blink Data Sample:', blinkData.slice(0, 3));
+  console.log('   Head Data Sample:', headOrientationData.slice(0, 3));
 }
 
-// Draw completion screen
 function drawCompletionScreen() {
   animationTime++;
 
@@ -1197,14 +1260,10 @@ function drawCompletionScreen() {
   }
 }
 
-// Show data summary - Navigate to results page
 function showDataSummary() {
-  // Data is already saved to localStorage in showCompletionScreen()
-  // Navigate to results page
   window.location.href = 'results.html';
 }
 
-// Game loop
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
