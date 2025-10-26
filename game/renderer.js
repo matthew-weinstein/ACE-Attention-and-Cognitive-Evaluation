@@ -8,84 +8,85 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-/*
-gameState phase1 instead of play:
-Visual Search
-The child pilots a spaceship.
-Stars spawn accross the screen 1 at a time for 15 seconds.
-The child must track the star with their eyes without moving their head.
-Occasionally a distracting object flashing comet moves accross the screen
-This measures gaze fixation and search: ADHD children may have irregular scan paths and fixate more on distractors
-*/
-
 // Game variables
-let spaceship = {
-  x: window.innerWidth / 2 - 25,
-  y: window.innerHeight - 150,
-  width: 50,
-  height: 50,
-  speed: 7,
-};
 let targets = [];
-let particles = [];
 let keys = {};
-let gameState = "start"; // 'start', 'phase1', 'play'
+let gameState = "start"; // 'start', 'instructions', 'phase1', 'phase2'
 let animationTime = 0;
 let stars = [];
 let mousePos = { x: 0, y: 0 };
 let startButtonHover = false;
 
+// Instruction screen variables
+let instructionPhase = null; // 'phase1' or 'phase2'
+let instructionStartTime = 0;
+let instructionDuration = 10000; // 10 seconds
+
+// Game cycle variables
+let currentCycle = 1;
+let totalCycles = 3;
+let currentPhase = 1; // 1 or 2
+
 // Phase 1: Visual Search variables
 let phase1Active = false;
 let phase1Timer = 0;
-let phase1Duration = 15000; // 15 seconds in milliseconds
+let phase1Duration = 30000; // 30 seconds in milliseconds
 let phase1StartTime = 0;
 let trackingStars = []; // Stars to track with eyes
 let distractors = []; // Flashing comets as distractors
 let currentTrackingStar = null;
-let starSpawnInterval = 2000; // Spawn a new star every 2 seconds
+let starSpawnInterval = 5000; // Spawn a new star every 2 seconds
 let lastStarSpawn = 0;
-let distractorSpawnInterval = 3000; // Spawn distractors every 3 seconds
+let distractorSpawnInterval = 1000; // Spawn distractors every 3 seconds
 let lastDistractorSpawn = 0;
-let gazeData = []; // Store gaze tracking data
 
-// Blink tracking variables
+// Phase 2: Fixation Task variables
+let phase2Active = false;
+let phase2Timer = 0;
+let phase2Duration = 15000; // 15 seconds in milliseconds
+let phase2StartTime = 0;
+let fixationStar = null; // The static yellow star to stare at
+
+// Unified data collection arrays (stores all data for entire test session)
+let blinkData = []; // Blink events with phase info
+let gazeData = []; // Gaze tracking data with phase info
+let headOrientationData = []; // Head orientation data with phase info
+
+// Tracking variables
 let blinkTrackerReady = false;
-let blinkData = [];
 let sessionId = null;
 
 // Initialize blink tracker event listeners
 if (window.blinkTracker) {
   window.blinkTracker.onReady((data) => {
-    console.log('Blink tracker ready:', data);
+    console.log("Blink tracker ready:", data);
     blinkTrackerReady = true;
   });
 
   window.blinkTracker.onBlinkDetected((data) => {
-    console.log('Blink detected:', data);
-    blinkData.push(data);
-    
-    // Record in gaze data as well
-    if (phase1Active) {
-      gazeData.push({
-        timestamp: data.relative_time_ms,
-        type: 'blink',
-        blinkNumber: data.blink_number
-      });
-    }
+    console.log("Blink detected:", data);
+
+    // Add phase and cycle information to blink data
+    const blinkEntry = {
+      ...data,
+      phase: phase1Active ? 1 : phase2Active ? 2 : null,
+      cycle: currentCycle,
+      sessionId: sessionId,
+    };
+    blinkData.push(blinkEntry);
   });
 
   window.blinkTracker.onTrackingStarted((data) => {
-    console.log('Blink tracking started:', data);
+    console.log("Blink tracking started:", data);
   });
 
   window.blinkTracker.onTrackingStopped((data) => {
-    console.log('Blink tracking stopped:', data);
-    console.log('Total blinks detected:', data.total_blinks);
+    console.log("Blink tracking stopped:", data);
+    console.log("Total blinks detected:", data.total_blinks);
   });
 
   window.blinkTracker.onError((error) => {
-    console.error('Blink tracker error:', error);
+    console.error("Blink tracker error:", error);
   });
 }
 
@@ -131,7 +132,8 @@ canvas.addEventListener("mousemove", (e) => {
 // Click handler
 canvas.addEventListener("click", (e) => {
   if (gameState === "start" && startButtonHover) {
-    startPhase1();
+    showInstructions("phase1");
+    canvas.style.cursor = "default";
   }
 });
 
@@ -139,11 +141,15 @@ canvas.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   keys[e.code] = true;
   if (gameState === "start" && e.code === "Enter") {
-    startPhase1();
+    showInstructions("phase1");
   }
   // ESC to return to menu
   if (e.code === "Escape") {
-    if (gameState === "phase1" || gameState === "play") {
+    if (
+      gameState === "phase1" ||
+      gameState === "phase2" ||
+      gameState === "instructions"
+    ) {
       resetToStart();
     } else if (gameState === "start") {
       window.close();
@@ -152,93 +158,18 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("keyup", (e) => (keys[e.code] = false));
 
-// Create explosion particles
-function createExplosion(x, y, color) {
-  for (let i = 0; i < 20; i++) {
-    particles.push({
-      x: x,
-      y: y,
-      vx: (Math.random() - 0.5) * 8,
-      vy: (Math.random() - 0.5) * 8,
-      size: Math.random() * 4 + 2,
-      life: 1,
-      color: color,
-    });
-  }
-}
-
-// Update particles
-function updateParticles() {
-  particles.forEach((p, i) => {
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life -= 0.02;
-    p.size *= 0.98;
-
-    if (p.life <= 0) {
-      particles.splice(i, 1);
-    }
-  });
-}
-
-// Draw particles
-function drawParticles() {
-  particles.forEach((p) => {
-    ctx.save();
-    ctx.globalAlpha = p.life;
-    ctx.fillStyle = p.color;
-    ctx.shadowColor = p.color;
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  });
-}
-
 // Spawn random targets
 function spawnTarget() {
-  if (gameState !== "play") return;
-
   let x = Math.random() * (canvas.width - 60) + 30;
   let y = Math.random() * 300 + 50;
-  let speedX = (Math.random() - 0.5) * 2;
-  let speedY = Math.random() * 0.5 + 0.5;
   targets.push({
     x: x,
     y: y,
     radius: 25,
-    speedX: speedX,
-    speedY: speedY,
     hue: Math.random() * 60 + 30, // Golden colors
   });
 }
-setInterval(spawnTarget, 1500);
-
-// Check collision between spaceship and targets
-function checkCollisions() {
-  targets.forEach((target, index) => {
-    // Calculate distance between spaceship center and target center
-    const shipCenterX = spaceship.x + spaceship.width / 2;
-    const shipCenterY = spaceship.y + spaceship.height / 2;
-    const distance = Math.sqrt(
-      Math.pow(target.x - shipCenterX, 2) + Math.pow(target.y - shipCenterY, 2)
-    );
-
-    // Check if collision occurred (spaceship treated as circle for simplicity)
-    if (distance < target.radius + spaceship.width / 2) {
-      // Create explosion effect
-      createExplosion(target.x, target.y, `hsl(${target.hue}, 100%, 50%)`);
-
-      // Remove target
-      targets.splice(index, 1);
-
-      // Visual feedback - flash effect
-      ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-  });
-}
+setInterval(spawnTarget, starSpawnInterval);
 
 // Draw animated stars background
 function drawStarsBackground() {
@@ -250,13 +181,6 @@ function drawStarsBackground() {
     ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-
-    // Move stars
-    star.y += star.speed;
-    if (star.y > canvas.height) {
-      star.y = 0;
-      star.x = Math.random() * canvas.width;
-    }
   });
 }
 
@@ -389,7 +313,7 @@ function drawStartButton() {
   }
 }
 
-// Draw modern start screen
+// Draw start screen
 function drawStartScreen() {
   animationTime++;
 
@@ -427,68 +351,6 @@ function drawStartScreen() {
   drawStartButton();
 }
 
-// Draw spaceship with trail effect
-function drawSpaceship() {
-  // Draw trail
-  ctx.save();
-  const gradient = ctx.createLinearGradient(
-    spaceship.x + spaceship.width / 2,
-    spaceship.y + spaceship.height,
-    spaceship.x + spaceship.width / 2,
-    spaceship.y + spaceship.height + 30
-  );
-  gradient.addColorStop(0, "rgba(0, 255, 250, 0.5)");
-  gradient.addColorStop(1, "rgba(0, 255, 250, 0)");
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.moveTo(
-    spaceship.x + spaceship.width / 2 - 10,
-    spaceship.y + spaceship.height
-  );
-  ctx.lineTo(
-    spaceship.x + spaceship.width / 2 + 10,
-    spaceship.y + spaceship.height
-  );
-  ctx.lineTo(
-    spaceship.x + spaceship.width / 2,
-    spaceship.y + spaceship.height + 30
-  );
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-
-  // Draw spaceship body
-  ctx.save();
-  ctx.shadowColor = "#00FFFA";
-  ctx.shadowBlur = 20;
-
-  // Main body
-  ctx.fillStyle = "#00FFFA";
-  ctx.beginPath();
-  ctx.moveTo(spaceship.x + spaceship.width / 2, spaceship.y);
-  ctx.lineTo(spaceship.x, spaceship.y + spaceship.height);
-  ctx.lineTo(
-    spaceship.x + spaceship.width / 2,
-    spaceship.y + spaceship.height - 10
-  );
-  ctx.lineTo(spaceship.x + spaceship.width, spaceship.y + spaceship.height);
-  ctx.closePath();
-  ctx.fill();
-
-  // Cockpit
-  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-  ctx.beginPath();
-  ctx.arc(
-    spaceship.x + spaceship.width / 2,
-    spaceship.y + 15,
-    5,
-    0,
-    Math.PI * 2
-  );
-  ctx.fill();
-  ctx.restore();
-}
-
 // Add roundRect polyfill
 if (!ctx.roundRect) {
   ctx.constructor.prototype.roundRect = function (x, y, width, height, radius) {
@@ -511,7 +373,113 @@ if (!ctx.roundRect) {
   };
 }
 
-// ============ PHASE 1: VISUAL SEARCH ============
+// Show instruction screen before a phase
+function showInstructions(phase) {
+  gameState = "instructions";
+  instructionPhase = phase;
+  instructionStartTime = Date.now();
+}
+
+// Draw instruction screen
+function drawInstructionScreen() {
+  drawGradientBackground();
+  drawStarsBackground();
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  // Calculate time remaining
+  const elapsed = Date.now() - instructionStartTime;
+  const remaining = Math.ceil((instructionDuration - elapsed) / 1000);
+
+  // Check if instruction time is up
+  if (elapsed >= instructionDuration) {
+    if (instructionPhase === "phase1") {
+      startPhase1();
+    } else if (instructionPhase === "phase2") {
+      startPhase2();
+    }
+    return;
+  }
+
+  // Draw semi-transparent overlay
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  // Draw instruction card
+  const cardWidth = 600;
+  const cardHeight = 400;
+  const cardX = centerX - cardWidth / 2;
+  const cardY = centerY - cardHeight / 2;
+
+  ctx.save();
+  ctx.shadowColor = "rgba(99, 102, 241, 0.5)";
+  ctx.shadowBlur = 40;
+
+  const cardGradient = ctx.createLinearGradient(
+    cardX,
+    cardY,
+    cardX,
+    cardY + cardHeight
+  );
+  cardGradient.addColorStop(0, "rgba(30, 30, 60, 0.95)");
+  cardGradient.addColorStop(1, "rgba(20, 20, 40, 0.95)");
+  ctx.fillStyle = cardGradient;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardWidth, cardHeight, 20);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+
+  // Title
+  ctx.fillStyle = "#818cf8";
+  ctx.font = 'bold 40px "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+
+  if (instructionPhase === "phase1") {
+    ctx.fillText(`Phase 1 - Visual Search`, centerX, cardY + 80);
+  } else {
+    ctx.fillText(`Phase 2 - Fixation Task`, centerX, cardY + 80);
+  }
+
+  // Instructions
+  ctx.fillStyle = "#ffffff";
+  ctx.font = '24px "Segoe UI", sans-serif';
+
+  if (instructionPhase === "phase1") {
+    ctx.fillText(
+      "Look at the golden stars with your eyes",
+      centerX,
+      cardY + 150
+    );
+    ctx.fillText("when they appear on the screen", centerX, cardY + 185);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.font = '22px "Segoe UI", sans-serif';
+    ctx.fillText("Ignore the flashing comets", centerX, cardY + 250);
+    ctx.fillText(
+      "Move yours eyes only, do NOT move your head",
+      centerX,
+      cardY + 280
+    );
+  } else {
+    ctx.fillText("Stare at the gold star", centerX, cardY + 150);
+    ctx.fillText("in the center of the screen", centerX, cardY + 185);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.font = '22px "Segoe UI", sans-serif';
+    ctx.fillText("Keep your eyes focused on it", centerX, cardY + 250);
+    ctx.fillText("Stay as still as possible", centerX, cardY + 280);
+  }
+
+  // Countdown
+  ctx.fillStyle = "#6366f1";
+  ctx.font = 'bold 32px "Segoe UI", sans-serif';
+  ctx.fillText(`Starting in ${remaining}...`, centerX, cardY + 355);
+}
 
 // Initialize Phase 1
 function startPhase1() {
@@ -524,45 +492,52 @@ function startPhase1() {
   currentTrackingStar = null;
   lastStarSpawn = 0;
   lastDistractorSpawn = 0;
-  gazeData = [];
-  blinkData = [];
-  
-  // Generate unique session ID
-  sessionId = `phase1_${Date.now()}`;
-  
-  // Position spaceship at center bottom
-  spaceship.x = canvas.width / 2 - spaceship.width / 2;
-  spaceship.y = canvas.height - 150;
-  
+
+  // Generate unique session ID for this phase
+  sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
+
   // Start blink tracking
   if (window.blinkTracker && blinkTrackerReady) {
-    window.blinkTracker.start(sessionId)
+    window.blinkTracker
+      .start(sessionId)
       .then(() => {
-        console.log('Blink tracking started for session:', sessionId);
+        console.log("Blink tracking started for session:", sessionId);
       })
       .catch((error) => {
-        console.error('Failed to start blink tracking:', error);
+        console.error("Failed to start blink tracking:", error);
       });
   } else {
-    console.warn('Blink tracker not ready or not available');
+    console.warn("Blink tracker not ready or not available");
   }
-}// Reset to start screen
+}
+
+// Reset to start screen
 function resetToStart() {
   gameState = "start";
   phase1Active = false;
+  phase2Active = false;
   trackingStars = [];
   distractors = [];
   currentTrackingStar = null;
+  fixationStar = null;
   targets = [];
-  
+  currentCycle = 1;
+  currentPhase = 1;
+
+  // Reset all data collection arrays
+  blinkData = [];
+  gazeData = [];
+  headOrientationData = [];
+
   // Stop blink tracking if active
   if (window.blinkTracker) {
-    window.blinkTracker.stop()
+    window.blinkTracker
+      .stop()
       .then(() => {
-        console.log('Blink tracking stopped');
+        console.log("Blink tracking stopped");
       })
       .catch((error) => {
-        console.error('Failed to stop blink tracking:', error);
+        console.error("Failed to stop blink tracking:", error);
       });
   }
 }
@@ -573,18 +548,20 @@ function spawnTrackingStar() {
     x: Math.random() * (canvas.width - 100) + 50,
     y: Math.random() * (canvas.height - 300) + 50,
     radius: 20,
-    pulsePhase: Math.random() * Math.PI * 2,
     lifetime: 0,
     active: true,
   };
   trackingStars.push(star);
   currentTrackingStar = star;
 
-  // Record gaze data
+  // Record gaze data with phase information
   gazeData.push({
     timestamp: Date.now() - phase1StartTime,
     starPosition: { x: star.x, y: star.y },
     type: "star_spawn",
+    phase: 1,
+    cycle: currentCycle,
+    sessionId: sessionId,
   });
 }
 
@@ -603,11 +580,14 @@ function spawnDistractor() {
   };
   distractors.push(distractor);
 
-  // Record gaze data
+  // Record gaze data with phase information
   gazeData.push({
     timestamp: Date.now() - phase1StartTime,
     distractorPosition: { x: distractor.x, y: distractor.y },
     type: "distractor_spawn",
+    phase: 1,
+    cycle: currentCycle,
+    sessionId: sessionId,
   });
 }
 
@@ -615,11 +595,10 @@ function spawnDistractor() {
 function updateTrackingStars() {
   trackingStars.forEach((star, index) => {
     star.lifetime++;
-    star.pulsePhase += 0.05;
 
-    // Remove stars after 3 seconds or when new star spawns
+    // Remove stars after 5 seconds or when new star spawns
     if (
-      star.lifetime > 180 ||
+      star.lifetime > 60 * 5 ||
       (currentTrackingStar !== star && star.lifetime > 60)
     ) {
       star.active = false;
@@ -657,9 +636,6 @@ function updateDistractors() {
 // Draw tracking stars
 function drawTrackingStars() {
   trackingStars.forEach((star) => {
-    const pulse = Math.sin(star.pulsePhase) * 0.3 + 1;
-    const radius = star.radius * pulse;
-
     ctx.save();
 
     // Outer glow
@@ -673,7 +649,7 @@ function drawTrackingStars() {
       0,
       star.x,
       star.y,
-      radius
+      star.radius
     );
     gradient.addColorStop(0, "#FFFFFF");
     gradient.addColorStop(0.3, "#FFD700");
@@ -681,19 +657,19 @@ function drawTrackingStars() {
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(star.x, star.y, radius, 0, Math.PI * 2);
+    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
     ctx.fill();
 
     // Draw star points
     ctx.fillStyle = "#FFFFFF";
     for (let i = 0; i < 5; i++) {
       const angle = (i * Math.PI * 2) / 5 - Math.PI / 2;
-      const x1 = star.x + Math.cos(angle) * radius * 1.5;
-      const y1 = star.y + Math.sin(angle) * radius * 1.5;
-      const x2 = star.x + Math.cos(angle + Math.PI / 5) * radius * 0.6;
-      const y2 = star.y + Math.sin(angle + Math.PI / 5) * radius * 0.6;
-      const x3 = star.x + Math.cos(angle - Math.PI / 5) * radius * 0.6;
-      const y3 = star.y + Math.sin(angle - Math.PI / 5) * radius * 0.6;
+      const x1 = star.x + Math.cos(angle) * star.radius * 1.5;
+      const y1 = star.y + Math.sin(angle) * star.radius * 1.5;
+      const x2 = star.x + Math.cos(angle + Math.PI / 5) * star.radius * 0.6;
+      const y2 = star.y + Math.sin(angle + Math.PI / 5) * star.radius * 0.6;
+      const x3 = star.x + Math.cos(angle - Math.PI / 5) * star.radius * 0.6;
+      const y3 = star.y + Math.sin(angle - Math.PI / 5) * star.radius * 0.6;
 
       ctx.beginPath();
       ctx.moveTo(x1, y1);
@@ -779,37 +755,6 @@ function drawDistractors() {
   });
 }
 
-// Draw Phase 1 UI
-function drawPhase1UI() {
-  const timeRemaining = Math.max(0, phase1Duration - phase1Timer);
-  const seconds = Math.ceil(timeRemaining / 1000);
-
-  // Timer background
-  ctx.save();
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.fillRect(canvas.width / 2 - 100, 20, 200, 60);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(canvas.width / 2 - 100, 20, 200, 60);
-  ctx.restore();
-
-  // Timer text
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = 'bold 32px "Segoe UI", sans-serif';
-  ctx.textAlign = "center";
-  ctx.fillText(`Time: ${seconds}s`, canvas.width / 2, 60);
-
-  // Instructions at bottom
-  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-  ctx.font = '20px "Segoe UI", sans-serif';
-  ctx.fillText(
-    "Track the golden star with your eyes",
-    canvas.width / 2,
-    canvas.height - 60
-  );
-  ctx.fillText("Do not move your head", canvas.width / 2, canvas.height - 30);
-}
-
 // Phase 1 game loop
 function phase1Loop(currentTime) {
   phase1Timer = currentTime - phase1StartTime;
@@ -839,41 +784,226 @@ function phase1Loop(currentTime) {
   // Draw
   drawGradientBackground();
   drawStarsBackground();
-  drawSpaceship();
   drawTrackingStars();
   drawDistractors();
-  drawPhase1UI();
 }
 
 // Complete Phase 1 and move to next phase
 function completePhase1() {
-  console.log("Phase 1 Complete!");
-  console.log("Gaze Data:", gazeData);
-  console.log("Blink Data:", blinkData);
+  console.log(`Phase 1 Complete! (Cycle ${currentCycle})`);
+  console.log(
+    `Total Gaze Events: ${
+      gazeData.filter((d) => d.phase === 1 && d.cycle === currentCycle).length
+    }`
+  );
+  console.log(
+    `Total Blinks in Phase 1: ${
+      blinkData.filter((d) => d.phase === 1 && d.cycle === currentCycle).length
+    }`
+  );
+
+  phase1Active = false;
 
   // Stop blink tracking
   if (window.blinkTracker) {
-    window.blinkTracker.stop()
+    window.blinkTracker
+      .stop()
       .then(() => {
         console.log("Blink tracking stopped");
+        // Show instructions for Phase 2
+        showInstructions("phase2");
       })
       .catch((error) => {
         console.error("Failed to stop blink tracking:", error);
+        // Still show instructions for Phase 2
+        showInstructions("phase2");
       });
+  } else {
+    // Show instructions for Phase 2
+    showInstructions("phase2");
   }
-
-  // For now, return to start screen
-  // In the future, this would transition to phase 2
-  resetToStart();
-
-  // Show completion message with blink count
-  const blinkCount = blinkData.length;
-  alert(
-    `Phase 1 Complete!\n\nThank you for participating.\n\nGaze tracking data has been recorded.\nBlinks detected: ${blinkCount}\n\nSession ID: ${sessionId}`
-  );
 }
 
-// ============ END PHASE 1 ============
+// Initialize Phase 2
+function startPhase2() {
+  gameState = "phase2";
+  phase2Active = true;
+  phase2StartTime = Date.now();
+  phase2Timer = 0;
+
+  // Generate unique session ID for this phase
+  sessionId = `phase2_cycle${currentCycle}_${Date.now()}`;
+
+  // Create centered fixation star
+  fixationStar = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    radius: 25,
+  };
+
+  // Start blink tracking for Phase 2
+  if (window.blinkTracker && blinkTrackerReady) {
+    window.blinkTracker
+      .start(sessionId)
+      .then(() => {
+        console.log("Blink tracking started for Phase 2 session:", sessionId);
+      })
+      .catch((error) => {
+        console.error("Failed to start blink tracking:", error);
+      });
+  } else {
+    console.warn("Blink tracker not ready or not available");
+  }
+}
+
+// Draw fixation star
+function drawFixationStar() {
+  if (!fixationStar) return;
+
+  const star = fixationStar;
+  const radius = star.radius;
+
+  ctx.save();
+
+  // Outer glow
+  ctx.shadowColor = "#ffc400ff";
+  ctx.shadowBlur = 40;
+
+  // Star gradient - yellow/gold
+  const gradient = ctx.createRadialGradient(
+    star.x,
+    star.y,
+    0,
+    star.x,
+    star.y,
+    radius
+  );
+  gradient.addColorStop(0, "#FFFFFF");
+  gradient.addColorStop(0.3, "#ffd900ff");
+  gradient.addColorStop(1, "rgba(255, 215, 0, 0.4)");
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(star.x, star.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw star points
+  ctx.fillStyle = "#FFED4E";
+  for (let i = 0; i < 5; i++) {
+    const angle = (i * Math.PI * 2) / 5 - Math.PI / 2;
+    const x1 = star.x + Math.cos(angle) * radius * 1.5;
+    const y1 = star.y + Math.sin(angle) * radius * 1.5;
+    const x2 = star.x + Math.cos(angle + Math.PI / 5) * radius * 0.6;
+    const y2 = star.y + Math.sin(angle + Math.PI / 5) * radius * 0.6;
+    const x3 = star.x + Math.cos(angle - Math.PI / 5) * radius * 0.6;
+    const y3 = star.y + Math.sin(angle - Math.PI / 5) * radius * 0.6;
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(star.x, star.y);
+    ctx.lineTo(x3, y3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// Draw static background (no moving stars)
+function drawStaticStarsBackground() {
+  stars.forEach((star) => {
+    ctx.save();
+    ctx.globalAlpha = star.opacity;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// Phase 2 game loop
+function phase2Loop(currentTime) {
+  phase2Timer = currentTime - phase2StartTime;
+
+  // Check if phase 2 is complete
+  if (phase2Timer >= phase2Duration) {
+    completePhase2();
+    return;
+  }
+
+  // Record head orientation data (simulated for now)
+  headOrientationData.push({
+    timestamp: phase2Timer,
+    type: "head_orientation",
+    phase: 2,
+    cycle: currentCycle,
+    sessionId: sessionId,
+    simulated: true,
+  });
+
+  // Draw
+  drawGradientBackground();
+  drawStaticStarsBackground();
+  drawFixationStar();
+}
+
+// Complete Phase 2 and move to next cycle or finish
+function completePhase2() {
+  console.log(`Phase 2 Complete! (Cycle ${currentCycle})`);
+  console.log(
+    `Total Head Orientation Events: ${
+      headOrientationData.filter(
+        (d) => d.phase === 2 && d.cycle === currentCycle
+      ).length
+    }`
+  );
+  console.log(
+    `Total Blinks in Phase 2: ${
+      blinkData.filter((d) => d.phase === 2 && d.cycle === currentCycle).length
+    }`
+  );
+
+  phase2Active = false;
+
+  // Stop blink tracking
+  if (window.blinkTracker) {
+    window.blinkTracker
+      .stop()
+      .then(() => {
+        console.log("Blink tracking stopped");
+        proceedAfterPhase2();
+      })
+      .catch((error) => {
+        console.error("Failed to stop blink tracking:", error);
+        proceedAfterPhase2();
+      });
+  } else {
+    proceedAfterPhase2();
+  }
+}
+
+function proceedAfterPhase2() {
+  // Check if we need to continue with more cycles
+  if (currentCycle < totalCycles) {
+    currentCycle++;
+    // Show instructions for next cycle Phase 1
+    showInstructions("phase1");
+  } else {
+    // All cycles complete - show summary and save data
+    console.log("=== TEST COMPLETE ===");
+    console.log(`Total Blinks Recorded: ${blinkData.length}`);
+    console.log(`Total Gaze Events Recorded: ${gazeData.length}`);
+    console.log(`Total Head Orientation Events: ${headOrientationData.length}`);
+    console.log("Blink Data:", blinkData);
+    console.log("Gaze Data:", gazeData);
+    console.log("Head Orientation Data:", headOrientationData);
+
+    alert(`All Phases Complete!\n\nThank you for participating.`);
+    resetToStart();
+  }
+}
 
 // Game loop
 function gameLoop() {
@@ -885,8 +1015,20 @@ function gameLoop() {
     return;
   }
 
+  if (gameState === "instructions") {
+    drawInstructionScreen();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   if (gameState === "phase1") {
     phase1Loop(Date.now());
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  if (gameState === "phase2") {
+    phase2Loop(Date.now());
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -895,33 +1037,8 @@ function gameLoop() {
   drawGradientBackground();
   drawStarsBackground();
 
-  // Move spaceship
-  if (keys["ArrowLeft"] && spaceship.x > 0) spaceship.x -= spaceship.speed;
-  if (keys["ArrowRight"] && spaceship.x + spaceship.width < canvas.width)
-    spaceship.x += spaceship.speed;
-  if (keys["ArrowUp"] && spaceship.y > 0) spaceship.y -= spaceship.speed;
-  if (keys["ArrowDown"] && spaceship.y + spaceship.height < canvas.height)
-    spaceship.y += spaceship.speed;
-
   // Update and draw targets
   targets.forEach((target, index) => {
-    // Move targets
-    target.x += target.speedX;
-    target.y += target.speedY;
-
-    // Bounce off walls
-    if (
-      target.x - target.radius <= 0 ||
-      target.x + target.radius >= canvas.width
-    ) {
-      target.speedX *= -1;
-    }
-
-    // Remove targets that go off screen bottom
-    if (target.y - target.radius > canvas.height) {
-      targets.splice(index, 1);
-    }
-
     // Draw target with glow
     ctx.save();
     const pulse = Math.sin(animationTime * 0.05 + index) * 0.2 + 1;
@@ -945,16 +1062,6 @@ function gameLoop() {
     ctx.fill();
     ctx.restore();
   });
-
-  // Check collisions
-  checkCollisions();
-
-  // Update and draw particles
-  updateParticles();
-  drawParticles();
-
-  // Draw spaceship
-  drawSpaceship();
 
   animationTime++;
   requestAnimationFrame(gameLoop);
