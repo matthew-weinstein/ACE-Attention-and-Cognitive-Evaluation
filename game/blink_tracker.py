@@ -1,20 +1,10 @@
-"""
-Replace the placeholder blink detection code in the
-detect_blink() function with actual blink detection.
-
-The script:
-- Starts when it receives "START" command from the game
-- Stops when it receives "STOP" command
-- Logs blink events with timestamps to a file
-- Communicates with the Electron app via stdin/stdout
-"""
 
 import sys
 import json
 import time
 from datetime import datetime
 import os
-from eyetrax import GazeEstimator, run_9_point_calibration
+from eyetrax import GazeEstimator,run_lissajous_calibration,run_9_point_calibration
 import cv2
 
 # Configuration
@@ -30,6 +20,8 @@ class BlinkTracker:
         self.estimator = None
         self.cap = None
         self.was_blinking = False
+        self._last_gaze_sent = 0.0
+        self._gaze_send_interval_s = 0.05  # throttle gaze messages to ~20 Hz
         
         # Clear all previous blink logs
         if os.path.exists(LOG_DIR):
@@ -58,14 +50,20 @@ class BlinkTracker:
         self.log_file.write("Timestamp, Blink Number, Relative Time (s)\n")
         self.log_file.flush()
         
-        # Initialize GazeEstimator and run calibration
+        # Initialize GazeEstimator and load or run calibration
         try:
-            self.send_message("status", "calibrating", {"message": "Starting 9-point calibration..."})
             self.estimator = GazeEstimator()
-            run_9_point_calibration(self.estimator)
             
-            # Save calibration model
-            self.estimator.save_model("gaze_model.pkl")
+            # Try to load existing calibration model
+            if os.path.exists("gaze_model.pkl"):
+                self.send_message("status", "loading_calibration", {"message": "Loading saved calibration..."})
+                self.estimator.load_model("gaze_model.pkl")
+                self.send_message("status", "calibration_loaded", {"message": "Calibration loaded successfully"})
+            else:
+                # No saved model, run calibration now
+                self.send_message("status", "calibrating", {"message": "Starting 9-point calibration..."})
+                run_lissajous_calibration(self.estimator)
+                self.estimator.save_model("gaze_model.pkl")
             
             # Initialize camera
             self.cap = cv2.VideoCapture(CAMERA_INDEX)
@@ -126,8 +124,14 @@ class BlinkTracker:
             # Optional: Predict gaze coordinates when not blinking
             if features is not None and not blink:
                 x, y = self.estimator.predict([features])[0]
-                # Uncomment to see gaze coordinates:
-                # print(f"Gaze: ({x:.0f}, {y:.0f})")
+                # Throttle and send gaze to Electron app
+                now = time.time()
+                if now - self._last_gaze_sent >= self._gaze_send_interval_s:
+                    self.send_message("gaze", "position", {
+                        "x": int(round(x)),
+                        "y": int(round(y))
+                    })
+                    self._last_gaze_sent = now
             
             # Only return True when transitioning from not blinking to blinking
             if blink and not self.was_blinking:

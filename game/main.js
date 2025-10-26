@@ -1,8 +1,53 @@
 const { app, BrowserWindow, ipcMain } = require("electron/main");
 const BlinkTracker = require("./blink_integration");
+const { spawn } = require("child_process");
+const path = require("path");
 
 let blinkTracker = null;
 let mainWindow = null;
+let calibrationComplete = false;
+
+// Run calibration in a separate process before creating the main window
+function runCalibration() {
+  return new Promise((resolve, reject) => {
+    console.log("Starting calibration process...");
+    
+    const calibrateScript = path.join(__dirname, "calibrate.py");
+    const calibrationProcess = spawn("python", [calibrateScript]);
+
+    let output = "";
+
+    calibrationProcess.stdout.on("data", (data) => {
+      const text = data.toString();
+      output += text;
+      console.log("Calibration:", text.trim());
+
+      if (text.includes("CALIBRATION_SUCCESS")) {
+        console.log("✅ Calibration completed successfully");
+        calibrationComplete = true;
+        resolve(true);
+      } else if (text.includes("CALIBRATION_FAILED")) {
+        console.error("❌ Calibration failed");
+        reject(new Error(text));
+      }
+    });
+
+    calibrationProcess.stderr.on("data", (data) => {
+      console.error("Calibration error:", data.toString());
+    });
+
+    calibrationProcess.on("close", (code) => {
+      if (code !== 0 && !calibrationComplete) {
+        reject(new Error(`Calibration process exited with code ${code}`));
+      }
+    });
+
+    calibrationProcess.on("error", (error) => {
+      console.error("Failed to start calibration process:", error);
+      reject(error);
+    });
+  });
+}
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -30,6 +75,12 @@ const createWindow = () => {
     mainWindow.webContents.send("blink-detected", data);
   });
 
+  // Forward gaze position events to renderer
+  blinkTracker.on("gaze", (data) => {
+    // Optionally, you can clamp or transform coordinates here before sending
+    mainWindow.webContents.send("gaze-position", data);
+  });
+
   blinkTracker.on("trackingStarted", (data) => {
     console.log("Tracking started:", data);
     mainWindow.webContents.send("blink-tracking-started", data);
@@ -54,7 +105,21 @@ const createWindow = () => {
     );
 };
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Run calibration first before opening the main window
+  try {
+    await runCalibration();
+    console.log("Calibration complete, creating main window...");
+  } catch (error) {
+    console.error("Calibration failed:", error);
+    // Show error dialog
+    const { dialog } = require("electron");
+    dialog.showErrorBox(
+      "Calibration Failed",
+      `Failed to complete eye tracking calibration:\n${error.message}\n\nThe app will continue but gaze tracking may not work properly.`
+    );
+  }
+
   createWindow();
 
   app.on("activate", () => {

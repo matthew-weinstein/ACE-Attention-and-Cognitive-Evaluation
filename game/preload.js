@@ -21,4 +21,7 @@ contextBridge.exposeInMainWorld('blinkTracker', {
   onTrackingStarted: (callback) => ipcRenderer.on('blink-tracking-started', (event, data) => callback(data)),
   onTrackingStopped: (callback) => ipcRenderer.on('blink-tracking-stopped', (event, data) => callback(data)),
   onError: (callback) => ipcRenderer.on('blink-tracker-error', (event, error) => callback(error))
+  ,
+  // Gaze updates (x,y)
+  onGaze: (callback) => ipcRenderer.on('gaze-position', (event, data) => callback(data))
 });

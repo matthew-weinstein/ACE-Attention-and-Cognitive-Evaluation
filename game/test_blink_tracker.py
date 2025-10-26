@@ -31,6 +31,10 @@ def read_output(process):
             elif msg_type == "blink":
                 print(f"👁️  BLINK #{data.get('blink_number')} detected at {data.get('relative_time_s')}s")
             
+            elif msg_type == "gaze":
+                if action == "position":
+                    print(f"🎯 GAZE at (x={data.get('x')}, y={data.get('y')})")
+
             elif msg_type == "error":
                 print(f"❌ ERROR: {action} - {data.get('message')}")
             

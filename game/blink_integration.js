@@ -18,6 +18,7 @@ class BlinkTracker {
       onTrackingStarted: null,
       onTrackingStopped: null,
       onError: null,
+      onGaze: null,
     };
   }
 
@@ -113,6 +114,12 @@ class BlinkTracker {
         }
         break;
 
+      case "gaze":
+        if (message.action === "position" && this.callbacks.onGaze) {
+          this.callbacks.onGaze(message.data);
+        }
+        break;
+
       case "error":
         console.error("Python Error:", message.data);
         if (this.callbacks.onError) {
@@ -170,6 +177,7 @@ class BlinkTracker {
       blink: "onBlinkDetected",
       trackingStarted: "onTrackingStarted",
       trackingStopped: "onTrackingStopped",
+      gaze: "onGaze",
       error: "onError",
     };
 

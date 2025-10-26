@@ -55,6 +55,7 @@ let headOrientationData = []; // Head orientation data with phase info
 // Tracking variables
 let blinkTrackerReady = false;
 let sessionId = null;
+let currentGaze = { x: null, y: null };
 
 // Initialize blink tracker event listeners
 if (window.blinkTracker) {
@@ -87,6 +88,23 @@ if (window.blinkTracker) {
 
   window.blinkTracker.onError((error) => {
     console.error("Blink tracker error:", error);
+  });
+
+  // Gaze listener
+  window.blinkTracker.onGaze((data) => {
+    const x = Math.round(data.x);
+    const y = Math.round(data.y);
+    currentGaze = { x, y };
+
+    // Record with phase/cycle metadata
+    gazeData.push({
+      x,
+      y,
+      phase: phase1Active ? 1 : phase2Active ? 2 : null,
+      cycle: currentCycle,
+      sessionId: sessionId,
+      t: Date.now(),
+    });
   });
 }
 
@@ -349,6 +367,36 @@ function drawStartScreen() {
   );
 
   drawStartButton();
+
+  drawGazeCursor();
+}
+
+// Draw simple calibration screen before Start
+function drawCalibrationScreen() {
+  drawGradientBackground();
+  drawStarsBackground();
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2 - 60;
+
+  drawGlowingText("CALIBRATING", centerX, centerY, 64, "#22d3ee");
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.textAlign = "center";
+  ctx.font = '22px "Segoe UI", sans-serif';
+  ctx.fillText("Follow the on-screen calibration points.", centerX, centerY + 50);
+  ctx.fillText("This will only take a few seconds…", centerX, centerY + 80);
+
+  // Subtle progress glow
+  const t = (Date.now() / 300) % (Math.PI * 2);
+  ctx.save();
+  ctx.strokeStyle = "rgba(34, 211, 238, 0.7)";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY + 140, 20 + Math.sin(t) * 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  drawGazeCursor();
 }
 
 // Add roundRect polyfill
@@ -509,6 +557,8 @@ function startPhase1() {
   } else {
     console.warn("Blink tracker not ready or not available");
   }
+
+  drawGazeCursor();
 }
 
 // Reset to start screen
@@ -1011,24 +1061,28 @@ function gameLoop() {
 
   if (gameState === "start") {
     drawStartScreen();
+    // gaze cursor drawn inside drawStartScreen
     requestAnimationFrame(gameLoop);
     return;
   }
 
   if (gameState === "instructions") {
     drawInstructionScreen();
+    // gaze cursor drawn inside drawInstructionScreen
     requestAnimationFrame(gameLoop);
     return;
   }
 
   if (gameState === "phase1") {
     phase1Loop(Date.now());
+    drawGazeCursor();
     requestAnimationFrame(gameLoop);
     return;
   }
 
   if (gameState === "phase2") {
     phase2Loop(Date.now());
+    drawGazeCursor();
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -1064,8 +1118,53 @@ function gameLoop() {
   });
 
   animationTime++;
+  drawGazeCursor();
   requestAnimationFrame(gameLoop);
 }
 
 // Start the game
 gameLoop();
+
+// Helpers to render gaze cursor and compare to targets
+function drawGazeCursor() {
+  if (currentGaze.x == null || currentGaze.y == null) return;
+
+  const size = 10;
+  ctx.save();
+  ctx.strokeStyle = "#00e5ff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(currentGaze.x - size, currentGaze.y);
+  ctx.lineTo(currentGaze.x + size, currentGaze.y);
+  ctx.moveTo(currentGaze.x, currentGaze.y - size);
+  ctx.lineTo(currentGaze.x, currentGaze.y + size);
+  ctx.stroke();
+
+  // Optional: small center dot
+  ctx.fillStyle = "#00e5ff";
+  ctx.beginPath();
+  ctx.arc(currentGaze.x, currentGaze.y, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Compare with current active target (phase-dependent)
+  const target = phase2Active && fixationStar
+    ? { x: fixationStar.x, y: fixationStar.y, radius: 30 }
+    : phase1Active && currentTrackingStar
+    ? { x: currentTrackingStar.x, y: currentTrackingStar.y, radius: 35 }
+    : null;
+
+  if (target) {
+    const dx = currentGaze.x - target.x;
+    const dy = currentGaze.y - target.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Visualize hit window
+    ctx.save();
+    ctx.strokeStyle = dist <= target.radius ? "#00ff7f" : "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
