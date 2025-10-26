@@ -171,7 +171,7 @@ function spawnTarget() {
 }
 setInterval(spawnTarget, starSpawnInterval);
 
-// Draw animated stars background
+// Draw animated stary background
 function drawStarsBackground() {
   stars.forEach((star) => {
     ctx.save();
