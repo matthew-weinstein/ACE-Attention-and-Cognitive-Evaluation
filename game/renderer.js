@@ -11,11 +11,12 @@ window.addEventListener("resize", resizeCanvas);
 // Game variables
 let targets = [];
 let keys = {};
-let gameState = "start"; // 'start', 'instructions', 'phase1', 'phase2'
+let gameState = "start"; // 'start', 'instructions', 'phase1', 'phase2', 'complete'
 let animationTime = 0;
 let stars = [];
 let mousePos = { x: 0, y: 0 };
 let startButtonHover = false;
+let dataButtonHover = false;
 
 // Instruction screen variables
 let instructionPhase = null; // 'phase1' or 'phase2'
@@ -46,6 +47,7 @@ let phase2Timer = 0;
 let phase2Duration = 15000; // 15 seconds in milliseconds
 let phase2StartTime = 0;
 let fixationStar = null; // The static yellow star to stare at
+let progressMeter = null; // Moving progress indicator
 
 // Unified data collection arrays (stores all data for entire test session)
 let blinkData = []; // Blink events with phase info
@@ -126,7 +128,23 @@ canvas.addEventListener("mousemove", (e) => {
     mousePos.y <= buttonY + buttonHeight &&
     gameState === "start";
 
-  canvas.style.cursor = startButtonHover ? "pointer" : "default";
+  // Check if hovering over data button on complete screen
+  if (gameState === "complete") {
+    const dataButtonWidth = 250;
+    const dataButtonHeight = 60;
+    const dataButtonX = canvas.width / 2 - dataButtonWidth / 2;
+    const dataButtonY = canvas.height / 2 + 150;
+
+    dataButtonHover =
+      mousePos.x >= dataButtonX &&
+      mousePos.x <= dataButtonX + dataButtonWidth &&
+      mousePos.y >= dataButtonY &&
+      mousePos.y <= dataButtonY + dataButtonHeight;
+
+    canvas.style.cursor = dataButtonHover ? "pointer" : "default";
+  } else {
+    canvas.style.cursor = startButtonHover ? "pointer" : "default";
+  }
 });
 
 // Click handler
@@ -134,6 +152,9 @@ canvas.addEventListener("click", (e) => {
   if (gameState === "start" && startButtonHover) {
     showInstructions("phase1");
     canvas.style.cursor = "default";
+  }
+  if (gameState === "complete" && dataButtonHover) {
+    showDataSummary();
   }
 });
 
@@ -148,7 +169,8 @@ document.addEventListener("keydown", (e) => {
     if (
       gameState === "phase1" ||
       gameState === "phase2" ||
-      gameState === "instructions"
+      gameState === "instructions" ||
+      gameState === "complete"
     ) {
       resetToStart();
     } else if (gameState === "start") {
@@ -544,9 +566,13 @@ function resetToStart() {
 
 // Spawn a tracking star
 function spawnTrackingStar() {
+  // Add larger margins to keep stars away from edges for better eye tracking
+  const marginX = 150; // Horizontal margin from edges
+  const marginY = 150; // Vertical margin from top and bottom
+
   const star = {
-    x: Math.random() * (canvas.width - 100) + 50,
-    y: Math.random() * (canvas.height - 300) + 50,
+    x: Math.random() * (canvas.width - marginX * 2) + marginX,
+    y: Math.random() * (canvas.height - marginY * 2) + marginY,
     radius: 20,
     lifetime: 0,
     active: true,
@@ -841,6 +867,15 @@ function startPhase2() {
     radius: 25,
   };
 
+  // Create progress meter that moves horizontally across the screen
+  progressMeter = {
+    x: 50, // Start position
+    y: canvas.height / 2,
+    radius: 25,
+    startX: 50,
+    endX: canvas.width - 50,
+  };
+
   // Start blink tracking for Phase 2
   if (window.blinkTracker && blinkTrackerReady) {
     window.blinkTracker
@@ -910,6 +945,45 @@ function drawFixationStar() {
   ctx.restore();
 }
 
+// Draw progress meter
+function drawProgressMeter() {
+  if (!progressMeter) return;
+
+  const meter = progressMeter;
+  const radius = meter.radius;
+
+  ctx.save();
+
+  // Outer glow
+  ctx.shadowColor = "#00D4FF";
+  ctx.shadowBlur = 30;
+
+  // Meter gradient - blue/cyan
+  const gradient = ctx.createRadialGradient(
+    meter.x,
+    meter.y,
+    0,
+    meter.x,
+    meter.y,
+    radius
+  );
+  gradient.addColorStop(0, "#FFFFFF");
+  gradient.addColorStop(0.3, "#00D4FF");
+  gradient.addColorStop(1, "rgba(0, 212, 255, 0.4)");
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(meter.x, meter.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw circle border
+  ctx.strokeStyle = "#00D4FF";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // Draw static background (no moving stars)
 function drawStaticStarsBackground() {
   stars.forEach((star) => {
@@ -933,6 +1007,14 @@ function phase2Loop(currentTime) {
     return;
   }
 
+  // Update progress meter position
+  if (progressMeter) {
+    const progress = phase2Timer / phase2Duration;
+    progressMeter.x =
+      progressMeter.startX +
+      (progressMeter.endX - progressMeter.startX) * progress;
+  }
+
   // Record head orientation data (simulated for now)
   headOrientationData.push({
     timestamp: phase2Timer,
@@ -947,6 +1029,7 @@ function phase2Loop(currentTime) {
   drawGradientBackground();
   drawStaticStarsBackground();
   drawFixationStar();
+  drawProgressMeter();
 }
 
 // Complete Phase 2 and move to next cycle or finish
@@ -991,7 +1074,7 @@ function proceedAfterPhase2() {
     // Show instructions for next cycle Phase 1
     showInstructions("phase1");
   } else {
-    // All cycles complete - show summary and save data
+    // All cycles complete - show completion screen
     console.log("=== TEST COMPLETE ===");
     console.log(`Total Blinks Recorded: ${blinkData.length}`);
     console.log(`Total Gaze Events Recorded: ${gazeData.length}`);
@@ -1000,9 +1083,125 @@ function proceedAfterPhase2() {
     console.log("Gaze Data:", gazeData);
     console.log("Head Orientation Data:", headOrientationData);
 
-    alert(`All Phases Complete!\n\nThank you for participating.`);
-    resetToStart();
+    showCompletionScreen();
   }
+}
+
+// Show completion screen
+function showCompletionScreen() {
+  gameState = "complete";
+}
+
+// Draw completion screen
+function drawCompletionScreen() {
+  animationTime++;
+
+  drawGradientBackground();
+  drawStarsBackground();
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  // Main title
+  drawGlowingText("MISSION COMPLETE!", centerX, centerY - 150, 72, "#6366f1");
+
+  // Success message
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.font = '32px "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText("Good job, you completed the mission!", centerX, centerY - 50);
+
+  // Instruction text
+  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+  ctx.font = '24px "Segoe UI", sans-serif';
+  ctx.fillText(
+    "Please inform your doctor that you have",
+    centerX,
+    centerY + 20
+  );
+  ctx.fillText("finished the assessment", centerX, centerY + 55);
+
+  // Draw data button
+  const buttonWidth = 250;
+  const buttonHeight = 60;
+  const buttonX = centerX - buttonWidth / 2;
+  const buttonY = centerY + 150;
+
+  ctx.save();
+
+  if (dataButtonHover) {
+    ctx.shadowColor = "#818cf8";
+    ctx.shadowBlur = 30;
+  }
+
+  const buttonGradient = ctx.createLinearGradient(
+    buttonX,
+    buttonY,
+    buttonX,
+    buttonY + buttonHeight
+  );
+
+  if (dataButtonHover) {
+    buttonGradient.addColorStop(0, "#818cf8");
+    buttonGradient.addColorStop(1, "#6366f1");
+  } else {
+    buttonGradient.addColorStop(0, "#6366f1");
+    buttonGradient.addColorStop(1, "#4f46e5");
+  }
+
+  ctx.fillStyle = buttonGradient;
+  ctx.beginPath();
+  ctx.roundRect(buttonX, buttonY, buttonWidth, buttonHeight, 12);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.restore();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = 'bold 24px "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText("VIEW DATA", centerX, buttonY + 38);
+
+  if (dataButtonHover) {
+    const pulse = (Math.sin(animationTime * 0.02) + 1) * 2;
+    ctx.strokeStyle = "rgba(129, 140, 248, 0.5)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(
+      buttonX - pulse,
+      buttonY - pulse,
+      buttonWidth + pulse * 2,
+      buttonHeight + pulse * 2,
+      15
+    );
+    ctx.stroke();
+  }
+}
+
+// Show data summary in console and alert
+function showDataSummary() {
+  const summary = `
+=== TEST DATA SUMMARY ===
+
+Total Blinks: ${blinkData.length}
+Total Gaze Events: ${gazeData.length}
+Total Head Orientation Events: ${headOrientationData.length}
+
+Phase 1 Blinks: ${blinkData.filter((d) => d.phase === 1).length}
+Phase 2 Blinks: ${blinkData.filter((d) => d.phase === 2).length}
+
+Data has been logged to the console.
+  `;
+
+  console.log(summary);
+  console.log("Full Blink Data:", blinkData);
+  console.log("Full Gaze Data:", gazeData);
+  console.log("Full Head Orientation Data:", headOrientationData);
+
+  alert(summary);
 }
 
 // Game loop
@@ -1017,6 +1216,12 @@ function gameLoop() {
 
   if (gameState === "instructions") {
     drawInstructionScreen();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  if (gameState === "complete") {
+    drawCompletionScreen();
     requestAnimationFrame(gameLoop);
     return;
   }
