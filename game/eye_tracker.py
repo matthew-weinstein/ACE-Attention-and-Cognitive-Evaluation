@@ -15,6 +15,7 @@ from datetime import datetime
 try:
     import eyetrax
     EYETRAX_AVAILABLE = True
+    print("eyetrax library loaded successfully")
 except ImportError:
     EYETRAX_AVAILABLE = False
     print("Warning: eyetrax library not available. Eye tracking will be simulated.")
@@ -72,8 +73,9 @@ class EyeTracker:
         """Initialize the eye tracker"""
         try:
             if EYETRAX_AVAILABLE:
-                # Initialize eyetrax here
-                self.send_status("ready", {"message": "Eye tracker initialized successfully"})
+                # Initialize eyetrax gaze estimator
+                self.tracker = eyetrax.GazeEstimator()
+                self.send_status("ready", {"message": "Eye tracker initialized successfully with eyetrax"})
             else:
                 self.send_status("ready", {"message": "Eye tracker initialized (simulation mode)"})
             return True
@@ -122,17 +124,35 @@ class EyeTracker:
         try:
             self.send_calibration_status("started", {"message": "Calibration started"})
             
-            # Simulate calibration process
-            for i in range(5):
-                time.sleep(1)
+            if EYETRAX_AVAILABLE and hasattr(self, 'tracker'):
+                # Use real eyetrax calibration
                 self.send_calibration_status("instruction", {
-                    "message": f"Look at point {i+1} of 5",
-                    "point": i+1,
+                    "message": "Look at the green dot when it appears",
+                    "point": 1,
                     "total_points": 5
                 })
                 
-            time.sleep(1)
-            self.send_calibration_status("completed", {"message": "Calibration completed successfully"})
+                # Run eyetrax 5-point calibration
+                calibration_result = eyetrax.run_5_point_calibration(self.tracker)
+                
+                if calibration_result:
+                    self.send_calibration_status("completed", {"message": "Calibration completed successfully"})
+                else:
+                    self.send_error("Calibration failed")
+                    return False
+            else:
+                # Simulate calibration process
+                for i in range(5):
+                    time.sleep(1)
+                    self.send_calibration_status("instruction", {
+                        "message": f"Look at point {i+1} of 5",
+                        "point": i+1,
+                        "total_points": 5
+                    })
+                    
+                time.sleep(1)
+                self.send_calibration_status("completed", {"message": "Calibration completed successfully"})
+            
             return True
         except Exception as e:
             self.send_error(f"Failed to calibrate: {str(e)}")
@@ -142,10 +162,14 @@ class EyeTracker:
         """Main tracking loop (real implementation)"""
         while self.is_tracking:
             try:
-                if EYETRAX_AVAILABLE:
+                if EYETRAX_AVAILABLE and hasattr(self, 'tracker'):
                     # Get gaze data from eyetrax
-                    # This would be the real implementation
-                    pass
+                    gaze_data = self.tracker.get_gaze()
+                    if gaze_data is not None:
+                        x, y = gaze_data
+                        confidence = 1.0  # eyetrax provides confidence
+                        self.send_gaze(x, y, confidence)
+                        self.gaze_data.append({"x": x, "y": y, "confidence": confidence})
                 time.sleep(0.033)  # ~30 FPS
             except Exception as e:
                 self.send_error(f"Tracking error: {str(e)}")
