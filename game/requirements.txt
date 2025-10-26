@@ -1,0 +1,4 @@
+# Eye tracking dependencies
+eyetrax>=0.1.0
+opencv-python>=4.8.0
+numpy>=1.24.0

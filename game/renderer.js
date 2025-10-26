@@ -11,12 +11,14 @@ window.addEventListener("resize", resizeCanvas);
 // Game variables
 let targets = [];
 let keys = {};
-let gameState = "start"; // 'start', 'instructions', 'phase1', 'phase2', 'complete'
+let gameState = "loading"; // 'loading', 'start', 'instructions', 'calibration', 'phase1', 'phase2', 'complete'
 let animationTime = 0;
 let stars = [];
 let mousePos = { x: 0, y: 0 };
 let startButtonHover = false;
 let dataButtonHover = false;
+let loadingProgress = 0;
+let loadingMessage = "Initializing eye tracker...";
 
 // Instruction screen variables
 let instructionPhase = null; // 'phase1' or 'phase2'
@@ -53,19 +55,78 @@ let progressMeter = null; // Moving progress indicator
 let blinkData = []; // Blink events with phase info
 let gazeData = []; // Gaze tracking data with phase info
 let headOrientationData = []; // Head orientation data with phase info
+let starProximityData = []; // Eye target proximity to stars with phase info
 
 // Tracking variables
-let blinkTrackerReady = false;
+let eyeTrackerReady = false;
+let eyeTrackerCalibrated = false;
+let calibrationInProgress = false;
 let sessionId = null;
 
-// Initialize blink tracker event listeners
-if (window.blinkTracker) {
-  window.blinkTracker.onReady((data) => {
-    console.log("Blink tracker ready:", data);
-    blinkTrackerReady = true;
+// Eye tracking variables
+let currentGazeX = null;
+let currentGazeY = null;
+let showGazeCursor = false; // Set to true for debugging
+let gazeCursorAlpha = 0.0;
+
+// Initialize eye tracker event listeners
+if (window.eyeTracker) {
+  window.eyeTracker.onReady((data) => {
+    console.log("Eye tracker ready:", data);
+    eyeTrackerReady = true;
+    loadingProgress = 50;
+    loadingMessage = "Eye tracker initialized. Waiting for calibration...";
+    // Don't transition to start screen yet - wait for calibration
   });
 
-  window.blinkTracker.onBlinkDetected((data) => {
+  window.eyeTracker.onCalibrationStarted((data) => {
+    console.log("Calibration started:", data);
+    calibrationInProgress = true;
+    loadingProgress = 60;
+    loadingMessage = "Calibration in progress...";
+  });
+
+  window.eyeTracker.onCalibrationInstruction((data) => {
+    console.log("Calibration instruction:", data);
+    loadingProgress = 70;
+    loadingMessage = data.message || "Follow the green dot...";
+  });
+
+  window.eyeTracker.onCalibrationCompleted((data) => {
+    console.log("Calibration completed:", data);
+    eyeTrackerCalibrated = true;
+    eyeTrackerReady = true; // Set ready flag since calibration is complete
+    calibrationInProgress = false;
+    loadingProgress = 100;
+    loadingMessage = "Calibration complete!";
+
+    // Transition to start screen after calibration is done
+    setTimeout(() => {
+      gameState = "start";
+    }, 1000);
+  });
+
+  window.eyeTracker.onGazeDetected((data) => {
+    // Update current gaze position
+    currentGazeX = data.x;
+    currentGazeY = data.y;
+
+    // Show cursor immediately if it's hidden
+    if (gazeCursorAlpha === 0) {
+      gazeCursorAlpha = 0.3; // Start with some visibility
+    }
+
+    // Add to gaze data with phase info
+    const gazeEntry = {
+      ...data,
+      phase: phase1Active ? 1 : phase2Active ? 2 : null,
+      cycle: currentCycle,
+      sessionId: sessionId,
+    };
+    gazeData.push(gazeEntry);
+  });
+
+  window.eyeTracker.onBlinkDetected((data) => {
     console.log("Blink detected:", data);
 
     // Add phase and cycle information to blink data
@@ -76,20 +137,43 @@ if (window.blinkTracker) {
       sessionId: sessionId,
     };
     blinkData.push(blinkEntry);
+
+    // Fade out gaze cursor on blink
+    gazeCursorAlpha = 0;
   });
 
-  window.blinkTracker.onTrackingStarted((data) => {
-    console.log("Blink tracking started:", data);
+  window.eyeTracker.onTrackingStarted((data) => {
+    console.log("Eye tracking started:", data);
   });
 
-  window.blinkTracker.onTrackingStopped((data) => {
-    console.log("Blink tracking stopped:", data);
+  window.eyeTracker.onTrackingStopped((data) => {
+    console.log("Eye tracking stopped:", data);
+    console.log("Total gaze points:", data.total_gaze_points);
     console.log("Total blinks detected:", data.total_blinks);
   });
 
-  window.blinkTracker.onError((error) => {
-    console.error("Blink tracker error:", error);
+  window.eyeTracker.onError((error) => {
+    console.error("Eye tracker error:", error);
+    loadingMessage = `Error: ${error.message || "Unknown error"}`;
+
+    // If error during loading, still allow to proceed after delay
+    if (gameState === "loading") {
+      setTimeout(() => {
+        gameState = "start";
+        eyeTrackerReady = false; // Mark as not ready due to error
+      }, 3000);
+    }
   });
+
+  // Simulate loading progress while waiting for eye tracker
+  let progressInterval = setInterval(() => {
+    if (eyeTrackerReady) {
+      clearInterval(progressInterval);
+    } else if (loadingProgress < 90) {
+      loadingProgress += Math.random() * 3;
+      if (loadingProgress > 90) loadingProgress = 90;
+    }
+  }, 200);
 }
 
 // Initialize stars for background
@@ -150,7 +234,17 @@ canvas.addEventListener("mousemove", (e) => {
 // Click handler
 canvas.addEventListener("click", (e) => {
   if (gameState === "start" && startButtonHover) {
-    showInstructions("phase1");
+    // Start calibration process
+    if (eyeTrackerReady && !eyeTrackerCalibrated) {
+      startCalibration();
+    } else if (eyeTrackerCalibrated) {
+      showInstructions("phase1");
+    } else {
+      // Show loading screen instead of alert
+      gameState = "loading";
+      loadingMessage = "Eye tracker is initializing. Please wait...";
+      loadingProgress = 30;
+    }
     canvas.style.cursor = "default";
   }
   if (gameState === "complete" && dataButtonHover) {
@@ -162,7 +256,17 @@ canvas.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   keys[e.code] = true;
   if (gameState === "start" && e.code === "Enter") {
-    showInstructions("phase1");
+    // Start calibration process
+    if (eyeTrackerReady && !eyeTrackerCalibrated) {
+      startCalibration();
+    } else if (eyeTrackerCalibrated) {
+      showInstructions("phase1");
+    } else {
+      // Show loading screen instead of alert
+      gameState = "loading";
+      loadingMessage = "Eye tracker is initializing. Please wait...";
+      loadingProgress = 30;
+    }
   }
   // ESC to return to menu
   if (e.code === "Escape") {
@@ -371,6 +475,88 @@ function drawStartScreen() {
   );
 
   drawStartButton();
+
+  // Show gaze cursor on start screen for testing
+  drawGazeCursor();
+}
+
+// Draw loading screen
+function drawLoadingScreen() {
+  animationTime++;
+
+  drawGradientBackground();
+  drawStarsBackground();
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  // Semi-transparent overlay
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  // Title
+  drawGlowingText("INITIALIZING", centerX, centerY - 120, 48, "#6366f1");
+
+  // Loading message
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.font = '24px "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText(loadingMessage, centerX, centerY - 40);
+
+  // Progress bar
+  const barWidth = 400;
+  const barHeight = 30;
+  const barX = centerX - barWidth / 2;
+  const barY = centerY + 20;
+
+  // Background
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barWidth, barHeight, 15);
+  ctx.fill();
+  ctx.restore();
+
+  // Progress fill
+  const fillWidth = (barWidth * loadingProgress) / 100;
+  if (fillWidth > 0) {
+    ctx.save();
+
+    const progressGradient = ctx.createLinearGradient(
+      barX,
+      barY,
+      barX + fillWidth,
+      barY
+    );
+    progressGradient.addColorStop(0, "#6366f1");
+    progressGradient.addColorStop(1, "#818cf8");
+
+    ctx.fillStyle = progressGradient;
+    ctx.shadowColor = "#6366f1";
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, fillWidth, barHeight, 15);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Progress percentage
+  ctx.fillStyle = "#ffffff";
+  ctx.font = 'bold 18px "Segoe UI", sans-serif';
+  ctx.fillText(`${Math.floor(loadingProgress)}%`, centerX, barY + 20);
+
+  // Animated dots
+  const dots = ".".repeat(Math.floor(animationTime / 20) % 4);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.font = '20px "Segoe UI", sans-serif';
+  ctx.fillText(`Please wait${dots}`, centerX, centerY + 90);
+
+  // Info text
+  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.font = '16px "Segoe UI", sans-serif';
+  ctx.fillText("Setting up eye tracking system", centerX, centerY + 130);
 }
 
 // Add roundRect polyfill
@@ -393,6 +579,109 @@ if (!ctx.roundRect) {
     this.quadraticCurveTo(x, y, x + radius, y);
     this.closePath();
   };
+}
+
+// Start calibration
+function startCalibration() {
+  if (window.eyeTracker && eyeTrackerReady) {
+    console.log("Starting eye tracker calibration...");
+    gameState = "calibration";
+    window.eyeTracker
+      .calibrate()
+      .then(() => {
+        console.log("Calibration command sent");
+      })
+      .catch((error) => {
+        console.error("Failed to start calibration:", error);
+        alert("Failed to start calibration. Please try again.");
+        gameState = "start";
+      });
+  }
+}
+
+// Draw calibration screen
+function drawCalibrationScreen() {
+  drawGradientBackground();
+  drawStarsBackground();
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  // Semi-transparent overlay
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  // Instruction card
+  const cardWidth = 700;
+  const cardHeight = 500;
+  const cardX = centerX - cardWidth / 2;
+  const cardY = centerY - cardHeight / 2;
+
+  ctx.save();
+  ctx.shadowColor = "rgba(99, 102, 241, 0.5)";
+  ctx.shadowBlur = 40;
+
+  const cardGradient = ctx.createLinearGradient(
+    cardX,
+    cardY,
+    cardX,
+    cardY + cardHeight
+  );
+  cardGradient.addColorStop(0, "rgba(30, 30, 60, 0.95)");
+  cardGradient.addColorStop(1, "rgba(20, 20, 40, 0.95)");
+  ctx.fillStyle = cardGradient;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardWidth, cardHeight, 20);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+
+  // Title
+  ctx.fillStyle = "#818cf8";
+  ctx.font = 'bold 40px "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText("Eye Tracker Calibration", centerX, cardY + 80);
+
+  // Instructions
+  ctx.fillStyle = "#ffffff";
+  ctx.font = '24px "Segoe UI", sans-serif';
+  ctx.fillText("Look at the GREEN DOT when it appears", centerX, cardY + 150);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.font = '22px "Segoe UI", sans-serif';
+  ctx.fillText(
+    "Keep your eyes OPEN when the white circle runs out",
+    centerX,
+    cardY + 200
+  );
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+  ctx.font = '20px "Segoe UI", sans-serif';
+  ctx.fillText("Follow the dot to each position", centerX, cardY + 250);
+  ctx.fillText("Try to keep your head still", centerX, cardY + 280);
+
+  // Animated dot example
+  const pulse = (Math.sin(animationTime * 0.05) + 1) * 0.5;
+  const dotSize = 15 + pulse * 10;
+
+  ctx.save();
+  ctx.shadowColor = "#00ff00";
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = "#00ff00";
+  ctx.beginPath();
+  ctx.arc(centerX, cardY + 350, dotSize, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Status message
+  ctx.fillStyle = "#6366f1";
+  ctx.font = 'bold 28px "Segoe UI", sans-serif';
+  ctx.fillText("Calibration in progress...", centerX, cardY + 440);
 }
 
 // Show instruction screen before a phase
@@ -505,32 +794,39 @@ function drawInstructionScreen() {
 
 // Initialize Phase 1
 function startPhase1() {
-  gameState = "phase1";
-  phase1Active = true;
-  phase1StartTime = Date.now();
-  phase1Timer = 0;
-  trackingStars = [];
-  distractors = [];
-  currentTrackingStar = null;
-  lastStarSpawn = 0;
-  lastDistractorSpawn = 0;
+  // Show initializing screen first
+  gameState = "initializing";
+  loadingMessage = "Initializing camera...";
 
-  // Generate unique session ID for this phase
-  sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
+  // Small delay to show the message
+  setTimeout(() => {
+    gameState = "phase1";
+    phase1Active = true;
+    phase1StartTime = Date.now();
+    phase1Timer = 0;
+    trackingStars = [];
+    distractors = [];
+    currentTrackingStar = null;
+    lastStarSpawn = 0;
+    lastDistractorSpawn = 0;
 
-  // Start blink tracking
-  if (window.blinkTracker && blinkTrackerReady) {
-    window.blinkTracker
-      .start(sessionId)
-      .then(() => {
-        console.log("Blink tracking started for session:", sessionId);
-      })
-      .catch((error) => {
-        console.error("Failed to start blink tracking:", error);
-      });
-  } else {
-    console.warn("Blink tracker not ready or not available");
-  }
+    // Generate unique session ID for this phase
+    sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
+
+    // Start blink tracking
+    if (window.eyeTracker && eyeTrackerReady && eyeTrackerCalibrated) {
+      window.eyeTracker
+        .start(sessionId)
+        .then(() => {
+          console.log("Eye tracking started for session:", sessionId);
+        })
+        .catch((error) => {
+          console.error("Failed to start eye tracking:", error);
+        });
+    } else {
+      console.warn("Eye tracker not ready or not calibrated");
+    }
+  }, 100); // Short delay to show initializing message
 }
 
 // Reset to start screen
@@ -550,16 +846,22 @@ function resetToStart() {
   blinkData = [];
   gazeData = [];
   headOrientationData = [];
+  starProximityData = [];
 
-  // Stop blink tracking if active
-  if (window.blinkTracker) {
-    window.blinkTracker
+  // Reset gaze tracking
+  currentGazeX = null;
+  currentGazeY = null;
+  gazeCursorAlpha = 0;
+
+  // Stop eye tracking if active
+  if (window.eyeTracker) {
+    window.eyeTracker
       .stop()
       .then(() => {
-        console.log("Blink tracking stopped");
+        console.log("Eye tracking stopped");
       })
       .catch((error) => {
-        console.error("Failed to stop blink tracking:", error);
+        console.error("Failed to stop eye tracking:", error);
       });
   }
 }
@@ -781,6 +1083,87 @@ function drawDistractors() {
   });
 }
 
+// Draw gaze cursor
+function drawGazeCursor() {
+  if (!showGazeCursor) return; // Skip if debug mode is off
+  if (currentGazeX === null || currentGazeY === null) return;
+
+  // Fade in quickly
+  if (gazeCursorAlpha < 1.0) {
+    gazeCursorAlpha = Math.min(gazeCursorAlpha + 0.2, 1.0); // Faster fade-in
+  }
+
+  if (gazeCursorAlpha <= 0) return;
+
+  const radius = 12;
+
+  ctx.save();
+  ctx.globalAlpha = gazeCursorAlpha;
+
+  // Outer ring
+  ctx.strokeStyle = "#00D4FF";
+  ctx.lineWidth = 3;
+  ctx.shadowColor = "#00D4FF";
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(currentGazeX, currentGazeY, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner dot
+  ctx.fillStyle = "#00D4FF";
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(currentGazeX, currentGazeY, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Crosshair
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 5;
+  ctx.beginPath();
+  ctx.moveTo(currentGazeX - radius - 5, currentGazeY);
+  ctx.lineTo(currentGazeX - radius + 2, currentGazeY);
+  ctx.moveTo(currentGazeX + radius - 2, currentGazeY);
+  ctx.lineTo(currentGazeX + radius + 5, currentGazeY);
+  ctx.moveTo(currentGazeX, currentGazeY - radius - 5);
+  ctx.lineTo(currentGazeX, currentGazeY - radius + 2);
+  ctx.moveTo(currentGazeX, currentGazeY + radius - 2);
+  ctx.lineTo(currentGazeX, currentGazeY + radius + 5);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Check proximity between gaze and stars
+function checkStarProximity() {
+  if (currentGazeX === null || currentGazeY === null) return;
+  if (!phase1Active) return;
+
+  const proximityThreshold = 200; // 200px threshold
+
+  trackingStars.forEach((star) => {
+    const dx = currentGazeX - star.x;
+    const dy = currentGazeY - star.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance <= proximityThreshold) {
+      // Save proximity data
+      const proximityEntry = {
+        timestamp: Date.now() - phase1StartTime,
+        gazeX: currentGazeX,
+        gazeY: currentGazeY,
+        starX: star.x,
+        starY: star.y,
+        distance: distance,
+        phase: 1,
+        cycle: currentCycle,
+        sessionId: sessionId,
+      };
+      starProximityData.push(proximityEntry);
+    }
+  });
+}
+
 // Phase 1 game loop
 function phase1Loop(currentTime) {
   phase1Timer = currentTime - phase1StartTime;
@@ -807,11 +1190,15 @@ function phase1Loop(currentTime) {
   updateTrackingStars();
   updateDistractors();
 
+  // Check proximity between gaze and stars
+  checkStarProximity();
+
   // Draw
   drawGradientBackground();
   drawStarsBackground();
   drawTrackingStars();
   drawDistractors();
+  drawGazeCursor(); // Show where user is looking
 }
 
 // Complete Phase 1 and move to next phase
@@ -827,20 +1214,26 @@ function completePhase1() {
       blinkData.filter((d) => d.phase === 1 && d.cycle === currentCycle).length
     }`
   );
+  console.log(
+    `Total Star Proximity Events: ${
+      starProximityData.filter((d) => d.phase === 1 && d.cycle === currentCycle)
+        .length
+    }`
+  );
 
   phase1Active = false;
 
-  // Stop blink tracking
-  if (window.blinkTracker) {
-    window.blinkTracker
+  // Stop eye tracking
+  if (window.eyeTracker) {
+    window.eyeTracker
       .stop()
       .then(() => {
-        console.log("Blink tracking stopped");
+        console.log("Eye tracking stopped");
         // Show instructions for Phase 2
         showInstructions("phase2");
       })
       .catch((error) => {
-        console.error("Failed to stop blink tracking:", error);
+        console.error("Failed to stop eye tracking:", error);
         // Still show instructions for Phase 2
         showInstructions("phase2");
       });
@@ -877,17 +1270,17 @@ function startPhase2() {
   };
 
   // Start blink tracking for Phase 2
-  if (window.blinkTracker && blinkTrackerReady) {
-    window.blinkTracker
+  if (window.eyeTracker && eyeTrackerReady && eyeTrackerCalibrated) {
+    window.eyeTracker
       .start(sessionId)
       .then(() => {
-        console.log("Blink tracking started for Phase 2 session:", sessionId);
+        console.log("Eye tracking started for Phase 2 session:", sessionId);
       })
       .catch((error) => {
-        console.error("Failed to start blink tracking:", error);
+        console.error("Failed to start eye tracking:", error);
       });
   } else {
-    console.warn("Blink tracker not ready or not available");
+    console.warn("Eye tracker not ready or not calibrated");
   }
 }
 
@@ -1030,6 +1423,7 @@ function phase2Loop(currentTime) {
   drawStaticStarsBackground();
   drawFixationStar();
   drawProgressMeter();
+  drawGazeCursor(); // Show where user is looking
 }
 
 // Complete Phase 2 and move to next cycle or finish
@@ -1050,16 +1444,16 @@ function completePhase2() {
 
   phase2Active = false;
 
-  // Stop blink tracking
-  if (window.blinkTracker) {
-    window.blinkTracker
+  // Stop eye tracking
+  if (window.eyeTracker) {
+    window.eyeTracker
       .stop()
       .then(() => {
-        console.log("Blink tracking stopped");
+        console.log("Eye tracking stopped");
         proceedAfterPhase2();
       })
       .catch((error) => {
-        console.error("Failed to stop blink tracking:", error);
+        console.error("Failed to stop eye tracking:", error);
         proceedAfterPhase2();
       });
   } else {
@@ -1079,9 +1473,11 @@ function proceedAfterPhase2() {
     console.log(`Total Blinks Recorded: ${blinkData.length}`);
     console.log(`Total Gaze Events Recorded: ${gazeData.length}`);
     console.log(`Total Head Orientation Events: ${headOrientationData.length}`);
+    console.log(`Total Star Proximity Events: ${starProximityData.length}`);
     console.log("Blink Data:", blinkData);
     console.log("Gaze Data:", gazeData);
     console.log("Head Orientation Data:", headOrientationData);
+    console.log("Star Proximity Data:", starProximityData);
 
     showCompletionScreen();
   }
@@ -1189,6 +1585,7 @@ function showDataSummary() {
 Total Blinks: ${blinkData.length}
 Total Gaze Events: ${gazeData.length}
 Total Head Orientation Events: ${headOrientationData.length}
+Total Star Proximity Events: ${starProximityData.length}
 
 Phase 1 Blinks: ${blinkData.filter((d) => d.phase === 1).length}
 Phase 2 Blinks: ${blinkData.filter((d) => d.phase === 2).length}
@@ -1200,6 +1597,7 @@ Data has been logged to the console.
   console.log("Full Blink Data:", blinkData);
   console.log("Full Gaze Data:", gazeData);
   console.log("Full Head Orientation Data:", headOrientationData);
+  console.log("Full Star Proximity Data:", starProximityData);
 
   alert(summary);
 }
@@ -1208,14 +1606,32 @@ Data has been logged to the console.
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  if (gameState === "loading") {
+    drawLoadingScreen();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   if (gameState === "start") {
     drawStartScreen();
     requestAnimationFrame(gameLoop);
     return;
   }
 
+  if (gameState === "calibration") {
+    drawCalibrationScreen();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   if (gameState === "instructions") {
     drawInstructionScreen();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  if (gameState === "initializing") {
+    drawLoadingScreen(); // Reuse the loading screen for "Initializing camera..."
     requestAnimationFrame(gameLoop);
     return;
   }
