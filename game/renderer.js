@@ -24,7 +24,7 @@ let instructionStartTime = 0;
 let instructionDuration = 10000;
 
 let currentCycle = 1;
-let totalCycles = 2;
+let totalCycles = 1;
 let currentPhase = 1;
 
 let phase1Active = false;
@@ -51,6 +51,7 @@ let blinkData = []; // Blink events with phase info
 let gazeData = []; // Gaze tracking data with phase info
 let headOrientationData = []; // Head orientation data with phase info
 let starProximityData = []; // Eye target proximity to stars with phase info
+let perSecondProximityData = []; // Aggregated per-second proximity data
 
 // Tracking variables
 let blinkTrackerReady = false;
@@ -59,6 +60,7 @@ let eyeTrackerReady = false;
 let eyeTrackerCalibrated = false;
 let calibrationInProgress = false;
 let sessionId = null;
+let lastProximityCheckSecond = -1; // Track which second we last checked
 
 // Eye tracking variables
 let currentGazeX = null;
@@ -66,11 +68,37 @@ let currentGazeY = null;
 let showGazeCursor = false; // Set to true for debugging
 let gazeCursorAlpha = 0.0;
 
+// Function to check if all trackers are ready and transition to start screen
+function checkAllTrackersReady() {
+  console.log("Checking tracker readiness:", {
+    blink: blinkTrackerReady,
+    head: headTrackerReady,
+    eye: eyeTrackerReady,
+    eyeCalibrated: eyeTrackerCalibrated,
+    gameState: gameState,
+  });
+
+  // If we're in loading state and blink + head trackers are ready, we can proceed
+  // Eye tracker calibration happens before window creation, so it's already done
+  if (gameState === "loading" && blinkTrackerReady && headTrackerReady) {
+    console.log("✓ All trackers ready! Transitioning to start screen...");
+    loadingProgress = 100;
+    loadingMessage = "All systems ready!";
+    eyeTrackerReady = true; // Mark eye tracker as ready since calibration is done
+    eyeTrackerCalibrated = true;
+
+    setTimeout(() => {
+      gameState = "start";
+    }, 1000);
+  }
+}
+
 // Initialize blink tracker event listeners
 if (window.blinkTracker) {
   window.blinkTracker.onReady((data) => {
     console.log("Blink tracker ready:", data);
     blinkTrackerReady = true;
+    checkAllTrackersReady(); // Check if we can transition to start screen
   });
 
   window.blinkTracker.onBlinkDetected((data) => {
@@ -103,10 +131,11 @@ if (window.blinkTracker) {
 // Initialize head tracker event listeners
 if (window.headTracker) {
   console.log("✓ window.headTracker is available");
-  
+
   window.headTracker.onReady((data) => {
     console.log("✓ Head tracker READY:", data);
     headTrackerReady = true;
+    checkAllTrackersReady(); // Check if we can transition to start screen
   });
 
   window.headTracker.onHeadPoseDetected((data) => {
@@ -117,9 +146,11 @@ if (window.headTracker) {
       sessionId: sessionId,
     };
     headOrientationData.push(headEntry);
-    
+
     if (headOrientationData.length % 100 === 0) {
-      console.log(`   📊 Head data collected: ${headOrientationData.length} entries`);
+      console.log(
+        `   📊 Head data collected: ${headOrientationData.length} entries`
+      );
     }
   });
 
@@ -250,12 +281,12 @@ if (window.eyeTracker) {
 
 setInterval(() => {
   if (phase1Active || phase2Active) {
-    console.log('📊 DATA STATUS:', {
+    console.log("📊 DATA STATUS:", {
       phase: phase1Active ? 1 : phase2Active ? 2 : 0,
       cycle: currentCycle,
       blinkCount: blinkData.length,
       headCount: headOrientationData.length,
-      gazeCount: gazeData.length
+      gazeCount: gazeData.length,
     });
   }
 }, 10000);
@@ -306,7 +337,7 @@ canvas.addEventListener("mousemove", (e) => {
 
     canvas.style.cursor = dataButtonHover ? "pointer" : "default";
   } else {
-  canvas.style.cursor = startButtonHover ? "pointer" : "default";
+    canvas.style.cursor = startButtonHover ? "pointer" : "default";
   }
 });
 
@@ -882,6 +913,7 @@ function startPhase1() {
     currentTrackingStar = null;
     lastStarSpawn = 0;
     lastDistractorSpawn = 0;
+    lastProximityCheckSecond = -1; // Reset per-second tracking
 
     // Generate unique session ID for this phase
     sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
@@ -949,6 +981,8 @@ function resetToStart() {
   gazeData = [];
   headOrientationData = [];
   starProximityData = [];
+  perSecondProximityData = [];
+  lastProximityCheckSecond = -1;
 
   // Reset gaze tracking
   currentGazeX = null;
@@ -1129,6 +1163,12 @@ function checkStarProximity() {
   if (!phase1Active) return;
 
   const proximityThreshold = 200; // 200px threshold
+  const currentTimeMs = Date.now() - phase1StartTime;
+  const currentSecond = Math.floor(currentTimeMs / 1000);
+
+  let isWithinProximity = false;
+  let closestDistance = Infinity;
+  let closestStar = null;
 
   trackingStars.forEach((star) => {
     const dx = currentGazeX - star.x;
@@ -1136,9 +1176,15 @@ function checkStarProximity() {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance <= proximityThreshold) {
-      // Save proximity data
+      isWithinProximity = true;
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestStar = star;
+      }
+
+      // Save detailed proximity data (every frame when within range)
       const proximityEntry = {
-        timestamp: Date.now() - phase1StartTime,
+        timestamp: currentTimeMs,
         gazeX: currentGazeX,
         gazeY: currentGazeY,
         starX: star.x,
@@ -1151,6 +1197,25 @@ function checkStarProximity() {
       starProximityData.push(proximityEntry);
     }
   });
+
+  // Aggregate data per second
+  if (currentSecond !== lastProximityCheckSecond) {
+    const perSecondEntry = {
+      second: currentSecond,
+      timestamp: currentTimeMs,
+      withinProximity: isWithinProximity,
+      closestDistance: isWithinProximity ? closestDistance : null,
+      closestStarX: closestStar ? closestStar.x : null,
+      closestStarY: closestStar ? closestStar.y : null,
+      gazeX: currentGazeX,
+      gazeY: currentGazeY,
+      phase: 1,
+      cycle: currentCycle,
+      sessionId: sessionId,
+    };
+    perSecondProximityData.push(perSecondEntry);
+    lastProximityCheckSecond = currentSecond;
+  }
 }
 
 function drawTrackingStars() {
@@ -1329,7 +1394,7 @@ function completePhase1() {
   phase1Active = false;
 
   const stopPromises = [];
-  
+
   if (window.blinkTracker) {
     stopPromises.push(
       window.blinkTracker.stop().catch((error) => {
@@ -1387,7 +1452,7 @@ function startPhase2() {
   };
 
   console.log("🚀 Starting Phase 2 - Session ID:", sessionId);
-  
+
   if (window.blinkTracker && blinkTrackerReady) {
     console.log("   → Starting blink tracker for Phase 2...");
     window.blinkTracker
@@ -1575,7 +1640,7 @@ function completePhase2() {
   phase2Active = false;
 
   const stopPromises = [];
-  
+
   if (window.blinkTracker) {
     stopPromises.push(
       window.blinkTracker.stop().catch((error) => {
@@ -1631,7 +1696,7 @@ function proceedAfterPhase2() {
 
 function showCompletionScreen() {
   gameState = "complete";
-  
+
   const assessmentData = {
     cyclesCompleted: totalCycles,
     sessionId: sessionId,
@@ -1640,20 +1705,27 @@ function showCompletionScreen() {
     gazeData: gazeData,
     headOrientationData: headOrientationData,
     starProximityData: starProximityData,
+    perSecondProximityData: perSecondProximityData,
     totalBlinks: blinkData.length,
     totalGazeEvents: gazeData.length,
     totalHeadOrientationEvents: headOrientationData.length,
-    totalStarProximityEvents: starProximityData.length
+    totalStarProximityEvents: starProximityData.length,
+    totalPerSecondProximityChecks: perSecondProximityData.length,
   };
-  
-  localStorage.setItem('aceAssessmentData', JSON.stringify(assessmentData));
-  console.log('✓ Assessment data saved to localStorage');
-  console.log('   Total Blinks:', blinkData.length);
-  console.log('   Total Gaze Events:', gazeData.length);
-  console.log('   Total Head Movements:', headOrientationData.length);
-  console.log('   Total Star Proximity Events:', starProximityData.length);
-  console.log('   Blink Data Sample:', blinkData.slice(0, 3));
-  console.log('   Head Data Sample:', headOrientationData.slice(0, 3));
+
+  localStorage.setItem("aceAssessmentData", JSON.stringify(assessmentData));
+  console.log("✓ Assessment data saved to localStorage");
+  console.log("   Total Blinks:", blinkData.length);
+  console.log("   Total Gaze Events:", gazeData.length);
+  console.log("   Total Head Movements:", headOrientationData.length);
+  console.log("   Total Star Proximity Events:", starProximityData.length);
+  console.log("   Per-Second Proximity Checks:", perSecondProximityData.length);
+  console.log("   Blink Data Sample:", blinkData.slice(0, 3));
+  console.log("   Head Data Sample:", headOrientationData.slice(0, 3));
+  console.log(
+    "   Per-Second Proximity Sample:",
+    perSecondProximityData.slice(0, 5)
+  );
 }
 
 function drawCompletionScreen() {
@@ -1745,7 +1817,7 @@ function drawCompletionScreen() {
 }
 
 function showDataSummary() {
-  window.location.href = 'results.html';
+  window.location.href = "results.html";
 }
 
 function gameLoop() {

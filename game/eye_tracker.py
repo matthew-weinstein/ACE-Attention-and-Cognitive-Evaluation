@@ -133,7 +133,7 @@ class EyeTracker:
                 })
                 
                 # Run eyetrax 5-point calibration
-                calibration_result = eyetrax.run_5_point_calibration(self.tracker)
+                calibration_result = eyetrax.run_9_point_calibration(self.tracker)
                 
                 if calibration_result:
                     self.send_calibration_status("completed", {"message": "Calibration completed successfully"})

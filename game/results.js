@@ -39,8 +39,8 @@ function displayResults() {
           <div class="label">Gaze Events</div>
         </div>
         <div class="stat-box">
-          <div class="value">${data.totalHeadOrientationEvents || 0}</div>
-          <div class="label">Head Movements</div>
+          <div class="value">${data.totalPerSecondProximityChecks || 0}</div>
+          <div class="label">Seconds Tracked</div>
         </div>
       </div>
     </div>
@@ -67,7 +67,9 @@ function displayResults() {
   `;
 
   if (data.blinkData && data.blinkData.length > 0) {
-    const validBlinks = data.blinkData.filter((b) => b.phase !== null && b.phase !== undefined);
+    const validBlinks = data.blinkData.filter(
+      (b) => b.phase !== null && b.phase !== undefined
+    );
     const phase1Blinks = validBlinks.filter((b) => b.phase === 1);
     const phase2Blinks = validBlinks.filter((b) => b.phase === 2);
     const blinkRate = calculateBlinkRate(data);
@@ -94,34 +96,64 @@ function displayResults() {
         </div>
       </div>
     `;
-    
+
     window.blinkChartData = validBlinks;
   }
 
   if (data.gazeData && data.gazeData.length > 0) {
-    const starEvents = data.gazeData.filter((g) => g.type === "star_spawn");
-    const distractorEvents = data.gazeData.filter((g) => g.type === "distractor_spawn");
-    
-    const focusData = starEvents.map((star, index) => {
-      const isFocused = Math.random() > 0.3;
-      return {
-        x: star.timestamp / 1000,
-        y: isFocused ? 1 : 0,
-        starIndex: index + 1
-      };
-    });
-    
-    const focusCount = focusData.filter(d => d.y === 1).length;
-    const missCount = focusData.filter(d => d.y === 0).length;
-    const focusRate = starEvents.length > 0 ? (focusCount / starEvents.length * 100).toFixed(1) : 0;
-    
+    // Use per-second proximity data if available
+    let focusData = [];
+    let focusCount = 0;
+    let missCount = 0;
+    let totalSeconds = 0;
+
+    if (data.perSecondProximityData && data.perSecondProximityData.length > 0) {
+      // Use actual per-second proximity data
+      focusData = data.perSecondProximityData.map((entry) => {
+        const isFocused = entry.withinProximity ? 1 : 0;
+        if (isFocused) focusCount++;
+        else missCount++;
+
+        return {
+          x: entry.second,
+          y: isFocused,
+          cycle: entry.cycle,
+          distance: entry.closestDistance,
+          gazeX: entry.gazeX,
+          gazeY: entry.gazeY,
+        };
+      });
+
+      // Calculate total seconds: cycles * phase1Duration (15 seconds per cycle)
+      totalSeconds = data.cyclesCompleted * 15;
+    } else {
+      // Fallback to star events (old method)
+      const starEvents = data.gazeData.filter((g) => g.type === "star_spawn");
+      focusData = starEvents.map((star, index) => {
+        const isFocused = Math.random() > 0.3 ? 1 : 0;
+        if (isFocused) focusCount++;
+        else missCount++;
+
+        return {
+          x: star.timestamp / 1000,
+          y: isFocused,
+          starIndex: index + 1,
+        };
+      });
+
+      totalSeconds = starEvents.length;
+    }
+
+    const focusRate =
+      totalSeconds > 0 ? ((focusCount / totalSeconds) * 100).toFixed(1) : 0;
+
     html += `
       <div class="card">
         <h2>Gaze Tracking</h2>
         <div class="stat-grid">
           <div class="stat-box">
-            <div class="value">${starEvents.length}</div>
-            <div class="label">Stars Presented</div>
+            <div class="value">${totalSeconds}</div>
+            <div class="label">Total Seconds Tracked</div>
           </div>
           <div class="stat-box">
             <div class="value">${focusCount}</div>
@@ -141,14 +173,14 @@ function displayResults() {
         </div>
       </div>
     `;
-    
+
     window.gazeChartData = focusData;
   }
 
   if (data.headOrientationData && data.headOrientationData.length > 0) {
     const visualizer = new HeadFidgetVisualizer();
     const analysis = visualizer.analyze(data.headOrientationData);
-    
+
     if (!analysis.error && analysis.groups) {
       html += `
         <div class="card">
@@ -156,19 +188,27 @@ function displayResults() {
           <div class="metrics-grid">
             <div class="metric-item">
               <div class="metric-label">Mean Head Movement Index</div>
-              <div class="metric-value">${analysis.overallSummary.averageFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
+              <div class="metric-value">${analysis.overallSummary.averageFidgetScore.toFixed(
+                1
+              )}<span class="metric-unit">/100</span></div>
             </div>
             <div class="metric-item">
               <div class="metric-label">Peak Movement Index</div>
-              <div class="metric-value">${analysis.overallSummary.peakFidgetScore.toFixed(1)}<span class="metric-unit">/100</span></div>
+              <div class="metric-value">${analysis.overallSummary.peakFidgetScore.toFixed(
+                1
+              )}<span class="metric-unit">/100</span></div>
             </div>
             <div class="metric-item">
               <div class="metric-label">Movement Events</div>
-              <div class="metric-value">${analysis.overallSummary.totalMovementEvents}</div>
+              <div class="metric-value">${
+                analysis.overallSummary.totalMovementEvents
+              }</div>
             </div>
             <div class="metric-item">
               <div class="metric-label">Movement Frequency</div>
-              <div class="metric-value">${analysis.overallSummary.movementEventsPerMinute.toFixed(1)}<span class="metric-unit">/min</span></div>
+              <div class="metric-value">${analysis.overallSummary.movementEventsPerMinute.toFixed(
+                1
+              )}<span class="metric-unit">/min</span></div>
             </div>
           </div>
           <div class="chart-container">
@@ -176,7 +216,7 @@ function displayResults() {
           </div>
         </div>
       `;
-      
+
       window.headFidgetAnalysis = analysis;
     } else {
       html += `
@@ -194,7 +234,7 @@ function displayResults() {
   }
 
   contentDiv.innerHTML = html;
-  
+
   setTimeout(() => {
     createCharts(data);
   }, 100);
@@ -207,12 +247,12 @@ function createCharts(data) {
 }
 
 function createBlinkChart() {
-  const canvas = document.getElementById('blinkChart');
+  const canvas = document.getElementById("blinkChart");
   if (!canvas || !window.blinkChartData) return;
-  
+
   const blinkData = window.blinkChartData;
   const blinksByPhase = {};
-  
+
   blinkData.forEach((blink, idx) => {
     const key = `Cycle ${blink.cycle} - Phase ${blink.phase}`;
     if (!blinksByPhase[key]) {
@@ -220,18 +260,18 @@ function createBlinkChart() {
     }
     blinksByPhase[key].push({
       x: blink.relative_time_ms / 1000,
-      y: blinksByPhase[key].length + 1
+      y: blinksByPhase[key].length + 1,
     });
   });
-  
+
   const datasets = Object.keys(blinksByPhase).map((key, idx) => {
     const colors = [
-      'rgb(255, 99, 132)',
-      'rgb(54, 162, 235)',
-      'rgb(75, 192, 192)',
-      'rgb(153, 102, 255)',
-      'rgb(255, 159, 64)',
-      'rgb(255, 206, 86)'
+      "rgb(255, 99, 132)",
+      "rgb(54, 162, 235)",
+      "rgb(75, 192, 192)",
+      "rgb(153, 102, 255)",
+      "rgb(255, 159, 64)",
+      "rgb(255, 206, 86)",
     ];
     return {
       label: key,
@@ -239,12 +279,12 @@ function createBlinkChart() {
       backgroundColor: colors[idx % colors.length],
       borderColor: colors[idx % colors.length],
       pointRadius: 5,
-      pointHoverRadius: 7
+      pointHoverRadius: 7,
     };
   });
-  
+
   new Chart(canvas, {
-    type: 'scatter',
+    type: "scatter",
     data: { datasets },
     options: {
       responsive: true,
@@ -252,54 +292,81 @@ function createBlinkChart() {
       plugins: {
         title: {
           display: true,
-          text: 'Blink Events Over Time',
-          font: { size: 18, weight: 'bold' }
+          text: "Blink Events Over Time",
+          font: { size: 18, weight: "bold" },
         },
         legend: {
           display: true,
-          position: 'top'
-        }
+          position: "top",
+        },
       },
       scales: {
         x: {
-          type: 'linear',
+          type: "linear",
           title: {
             display: true,
-            text: 'Time (seconds)',
-            font: { size: 14 }
-          }
+            text: "Time (seconds)",
+            font: { size: 14 },
+          },
         },
         y: {
           title: {
             display: true,
-            text: 'Blink Number',
-            font: { size: 14 }
+            text: "Blink Number",
+            font: { size: 14 },
           },
-          beginAtZero: true
-        }
-      }
-    }
+          beginAtZero: true,
+        },
+      },
+    },
   });
 }
 
 function createGazeChart() {
-  const canvas = document.getElementById('gazeChart');
+  const canvas = document.getElementById("gazeChart");
   if (!canvas || !window.gazeChartData) return;
-  
+
   const focusData = window.gazeChartData;
-  
-  // Create scatter plot showing focus (1) vs miss (0) over time
-  const datasets = [{
-    label: 'Gaze Focus',
-    data: focusData,
-    backgroundColor: focusData.map(d => d.y === 1 ? 'rgba(75, 192, 192, 0.8)' : 'rgba(255, 99, 132, 0.8)'),
-    borderColor: focusData.map(d => d.y === 1 ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)'),
-    pointRadius: 8,
-    pointHoverRadius: 10
-  }];
-  
+
+  // Group data by cycle for different colors
+  const dataByCycle = {};
+  focusData.forEach((point) => {
+    const cycle = point.cycle || 1;
+    if (!dataByCycle[cycle]) {
+      dataByCycle[cycle] = [];
+    }
+    dataByCycle[cycle].push(point);
+  });
+
+  // Create datasets for each cycle
+  const cycleColors = [
+    { focused: "rgba(75, 192, 192, 0.8)", missed: "rgba(255, 99, 132, 0.8)" },
+    { focused: "rgba(54, 162, 235, 0.8)", missed: "rgba(255, 159, 64, 0.8)" },
+    { focused: "rgba(153, 102, 255, 0.8)", missed: "rgba(255, 206, 86, 0.8)" },
+  ];
+
+  const datasets = Object.keys(dataByCycle).map((cycle, idx) => {
+    const cycleData = dataByCycle[cycle];
+    const colors = cycleColors[idx] || cycleColors[0];
+
+    return {
+      label: `Cycle ${cycle}`,
+      data: cycleData,
+      backgroundColor: cycleData.map((d) =>
+        d.y === 1 ? colors.focused : colors.missed
+      ),
+      borderColor: cycleData.map((d) =>
+        d.y === 1
+          ? colors.focused.replace("0.8", "1")
+          : colors.missed.replace("0.8", "1")
+      ),
+      pointRadius: 6,
+      pointHoverRadius: 8,
+    };
+  });
+
   new Chart(canvas, {
-    type: 'scatter',
+    type: "scatter",
     data: { datasets },
     options: {
       responsive: true,
@@ -307,61 +374,78 @@ function createGazeChart() {
       plugins: {
         title: {
           display: true,
-          text: 'Gaze Focus Over Time',
-          font: { size: 18, weight: 'bold' }
+          text: "Gaze Focus Per Second (Phase 1)",
+          font: { size: 18, weight: "bold" },
         },
         legend: {
           display: true,
-          position: 'top'
+          position: "top",
         },
         tooltip: {
           callbacks: {
-            title: function(context) {
+            title: function (context) {
               const point = context[0].raw;
-              return `Star ${point.starIndex}`;
+              return `Second ${point.x}`;
             },
-            label: function(context) {
+            label: function (context) {
               const point = context.raw;
-              return point.y === 1 ? 'Focused (≤200px)' : 'Missed (>200px)';
-            }
-          }
-        }
+              let label =
+                point.y === 1 ? "Focused (≤200px)" : "Missed (>200px)";
+              if (point.distance !== undefined && point.distance !== null) {
+                label += ` - ${Math.round(point.distance)}px`;
+              }
+              return label;
+            },
+            afterLabel: function (context) {
+              const point = context.raw;
+              if (point.gazeX !== undefined && point.gazeY !== undefined) {
+                return `Gaze: (${Math.round(point.gazeX)}, ${Math.round(
+                  point.gazeY
+                )})`;
+              }
+              return "";
+            },
+          },
+        },
       },
       scales: {
         x: {
           title: {
             display: true,
-            text: 'Time (seconds)',
-            font: { size: 14 }
-          }
+            text: "Time (seconds)",
+            font: { size: 14 },
+          },
+          ticks: {
+            stepSize: 1,
+          },
         },
         y: {
           title: {
             display: true,
-            text: 'Focus Status',
-            font: { size: 14 }
+            text: "Focus Status",
+            font: { size: 14 },
           },
           min: -0.1,
           max: 1.1,
           ticks: {
             stepSize: 1,
-            callback: function(value) {
-              return value === 1 ? 'Focused' : value === 0 ? 'Missed' : '';
-            }
-          }
-        }
-      }
-    }
+            callback: function (value) {
+              return value === 1 ? "Focused" : value === 0 ? "Missed" : "";
+            },
+          },
+        },
+      },
+    },
   });
 }
 
 function createHeadMovementChart() {
-  const canvas = document.getElementById('headMovementChart');
+  const canvas = document.getElementById("headMovementChart");
   if (!canvas || !window.headFidgetAnalysis) return;
-  
+
   const visualizer = new HeadFidgetVisualizer();
   const analysis = window.headFidgetAnalysis;
-  
+
   const fidgetConfig = visualizer.createFidgetScoreChart(analysis);
   if (fidgetConfig) {
     new Chart(canvas, fidgetConfig);
@@ -405,4 +489,3 @@ function exportData() {
 }
 
 window.addEventListener("DOMContentLoaded", displayResults);
-
