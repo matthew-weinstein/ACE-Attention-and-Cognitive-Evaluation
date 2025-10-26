@@ -143,7 +143,7 @@ canvas.addEventListener("mousemove", (e) => {
 
     canvas.style.cursor = dataButtonHover ? "pointer" : "default";
   } else {
-    canvas.style.cursor = startButtonHover ? "pointer" : "default";
+  canvas.style.cursor = startButtonHover ? "pointer" : "default";
   }
 });
 
@@ -517,7 +517,7 @@ function startPhase1() {
 
   // Generate unique session ID for this phase
   sessionId = `phase1_cycle${currentCycle}_${Date.now()}`;
-
+  
   // Start blink tracking
   if (window.blinkTracker && blinkTrackerReady) {
     window.blinkTracker
@@ -550,7 +550,7 @@ function resetToStart() {
   blinkData = [];
   gazeData = [];
   headOrientationData = [];
-
+  
   // Stop blink tracking if active
   if (window.blinkTracker) {
     window.blinkTracker
@@ -1090,6 +1090,22 @@ function proceedAfterPhase2() {
 // Show completion screen
 function showCompletionScreen() {
   gameState = "complete";
+  
+  // Save assessment data to localStorage
+  const assessmentData = {
+    cyclesCompleted: totalCycles,
+    sessionId: sessionId,
+    completedAt: new Date().toISOString(),
+    blinkData: blinkData,
+    gazeData: gazeData,
+    headOrientationData: headOrientationData,
+    totalBlinks: blinkData.length,
+    totalGazeEvents: gazeData.length,
+    totalHeadOrientationEvents: headOrientationData.length
+  };
+  
+  localStorage.setItem('aceAssessmentData', JSON.stringify(assessmentData));
+  console.log('Assessment data saved to localStorage');
 }
 
 // Draw completion screen
@@ -1163,7 +1179,7 @@ function drawCompletionScreen() {
   ctx.fillStyle = "#ffffff";
   ctx.font = 'bold 24px "Segoe UI", sans-serif';
   ctx.textAlign = "center";
-  ctx.fillText("VIEW DATA", centerX, buttonY + 38);
+  ctx.fillText("DOCTOR VIEW", centerX, buttonY + 38);
 
   if (dataButtonHover) {
     const pulse = (Math.sin(animationTime * 0.02) + 1) * 2;
@@ -1181,27 +1197,11 @@ function drawCompletionScreen() {
   }
 }
 
-// Show data summary in console and alert
+// Show data summary - Navigate to results page
 function showDataSummary() {
-  const summary = `
-=== TEST DATA SUMMARY ===
-
-Total Blinks: ${blinkData.length}
-Total Gaze Events: ${gazeData.length}
-Total Head Orientation Events: ${headOrientationData.length}
-
-Phase 1 Blinks: ${blinkData.filter((d) => d.phase === 1).length}
-Phase 2 Blinks: ${blinkData.filter((d) => d.phase === 2).length}
-
-Data has been logged to the console.
-  `;
-
-  console.log(summary);
-  console.log("Full Blink Data:", blinkData);
-  console.log("Full Gaze Data:", gazeData);
-  console.log("Full Head Orientation Data:", headOrientationData);
-
-  alert(summary);
+  // Data is already saved to localStorage in showCompletionScreen()
+  // Navigate to results page
+  window.location.href = 'results.html';
 }
 
 // Game loop
