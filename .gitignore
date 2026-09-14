@@ -1,10 +1,28 @@
 # Dependencies
 node_modules/
 
+# Python environments
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime-generated log output (any depth - trackers write relative to cwd)
+blink_logs/
+head_logs/
+eye_logs/
+
+# Claude Code local state
+.claude/
+
 # Environment variables
 .env
 .env.local
 
-# Python cache (for blink_tracker.py)
-venv/
-env/
+# OS
+.DS_Store
+Thumbs.db
