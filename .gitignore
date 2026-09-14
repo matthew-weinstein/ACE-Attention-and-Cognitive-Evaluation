@@ -18,6 +18,7 @@ eye_logs/
 
 # Claude Code local state
 .claude/
+CLAUDE.md
 
 # Environment variables
 .env

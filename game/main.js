@@ -4,6 +4,7 @@ const path = require("path");
 const BlinkTracker = require("./src/trackers/blink_tracker");
 const HeadTracker = require("./src/trackers/head_tracker");
 const EyeTracker = require("./src/trackers/eye_tracker");
+const { runPreflight } = require("./src/preflight");
 
 let blinkTracker = null;
 let headTracker = null;
@@ -12,7 +13,7 @@ let mainWindow = null;
 
 // ── Window ────────────────────────────────────────────────────────────────────
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     autoHideMenuBar: true,
     fullscreen: true,
@@ -33,7 +34,27 @@ function createWindow() {
 
   // ── Forward tracker events to renderer via IPC ─────────────────────────────
 
-  const send = (channel, data) => mainWindow.webContents.send(channel, data);
+  // Preflight can fail before the page has loaded, and a send() at that point
+  // reaches nothing.  Hold messages until the renderer is listening.
+  let rendererLoaded = false;
+  const deferred = [];
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    rendererLoaded = true;
+    while (deferred.length) {
+      const [channel, data] = deferred.shift();
+      mainWindow.webContents.send(channel, data);
+    }
+  });
+
+  const send = (channel, data) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!rendererLoaded) {
+      deferred.push([channel, data]);
+      return;
+    }
+    mainWindow.webContents.send(channel, data);
+  };
 
   blinkTracker.on("ready", (d) => send("blink-tracker-ready", d));
   blinkTracker.on("blink", (d) => send("blink-detected", d));
@@ -66,23 +87,60 @@ function createWindow() {
   eyeTracker.on("trackingStopped", (d) => send("eye-tracking-stopped", d));
   eyeTracker.on("error", (e) => send("eye-tracker-error", e));
 
+  // ── Preflight before spawning anything ────────────────────────────────────
+
+  // Checks the venv path, Python version, required packages, the MediaPipe
+  // model asset and the camera, and names the first one that is missing.
+  // Without this a missing prerequisite only ever showed up as a handshake
+  // timeout that blamed the wrong thing.
+  const preflight = await runPreflight();
+
+  if (!preflight.ok) {
+    console.error(`Preflight failed [${preflight.check}]: ${preflight.message}`);
+    const detail = { check: preflight.check, message: preflight.message };
+    send("blink-tracker-error", detail);
+    send("head-tracker-error", detail);
+    send("eye-tracker-error", detail);
+    return;
+  }
+
+  console.log(
+    `Preflight passed: Python ${preflight.python} (${preflight.source}) at ${preflight.interpreter}, ` +
+      `camera index ${preflight.cameraIndex}`,
+  );
+
   // ── Start all three trackers concurrently ─────────────────────────────────
 
-  Promise.all([
+  // allSettled, not all: the blink and head processes are lifecycle stubs and
+  // stay usable even when the eye tracker fails to start.
+  const results = await Promise.allSettled([
     blinkTracker.initialize(),
     headTracker.initialize(),
     eyeTracker.initialize(),
-  ])
-    .then(() => console.log("All trackers initialized"))
-    .catch((err) => console.error("Tracker initialization error:", err));
+  ]);
+
+  const names = ["blink", "head", "eye"];
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      console.error(`${names[i]} tracker failed to start:\n${result.reason.message}`);
+      send(`${names[i]}-tracker-error`, { message: result.reason.message });
+    }
+  });
+
+  if (results.every((r) => r.status === "fulfilled")) {
+    console.log("All trackers initialized");
+  }
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+const openWindow = () =>
+  createWindow().catch((err) => console.error("Window startup failed:", err));
+
 app.whenReady().then(() => {
-  createWindow();
+  openWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) openWindow();
   });
 });
 
