@@ -1,285 +1,134 @@
 const { app, BrowserWindow, ipcMain } = require("electron/main");
-const BlinkTracker = require("./blink_integration");
-const HeadTracker = require("./head_integration");
-const EyeTraxTracker = require("./eyetrax_integration");
+const path = require("path");
 
+const BlinkTracker = require("./src/trackers/blink_tracker");
+const HeadTracker = require("./src/trackers/head_tracker");
+const EyeTracker = require("./src/trackers/eye_tracker");
 
 let blinkTracker = null;
 let headTracker = null;
 let eyeTracker = null;
 let mainWindow = null;
-let isCalibrating = false;
 
-const createWindow = () => {
+// ── Window ────────────────────────────────────────────────────────────────────
+
+function createWindow() {
   mainWindow = new BrowserWindow({
     autoHideMenuBar: true,
     fullscreen: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: require("path").join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  mainWindow.loadFile("index.html");
+  mainWindow.loadFile("renderer/index.html");
 
-  // Initialize blink tracker
+  // ── Instantiate trackers ───────────────────────────────────────────────────
+
   blinkTracker = new BlinkTracker();
-
-  blinkTracker.on("ready", (data) => {
-    console.log("Blink tracker ready:", data);
-    mainWindow.webContents.send("blink-tracker-ready", data);
-  });
-
-  blinkTracker.on("blink", (data) => {
-    console.log("Blink detected:", data);
-    mainWindow.webContents.send("blink-detected", data);
-  });
-
-  blinkTracker.on("trackingStarted", (data) => {
-    console.log("Blink tracking started:", data);
-    mainWindow.webContents.send("blink-tracking-started", data);
-  });
-
-  blinkTracker.on("trackingStopped", (data) => {
-    console.log("Blink tracking stopped:", data);
-    mainWindow.webContents.send("blink-tracking-stopped", data);
-  });
-
-  blinkTracker.on("error", (error) => {
-    console.error("Blink tracker error:", error);
-    mainWindow.webContents.send("blink-tracker-error", error);
-  });
-
-  // Initialize head tracker
   headTracker = new HeadTracker();
+  eyeTracker = new EyeTracker();
 
-  headTracker.on("ready", (data) => {
-    console.log("Head tracker ready:", data);
-    mainWindow.webContents.send("head-tracker-ready", data);
-  });
+  // ── Forward tracker events to renderer via IPC ─────────────────────────────
 
-  headTracker.on("headPose", (data) => {
-    console.log("Head pose detected:", data);
-    mainWindow.webContents.send("head-pose-detected", data);
-  });
+  const send = (channel, data) => mainWindow.webContents.send(channel, data);
 
-  headTracker.on("blink", (data) => {
-    console.log("Blink detected:", data);
-    mainWindow.webContents.send("blink-detected", data);
-  });
+  blinkTracker.on("ready", (d) => send("blink-tracker-ready", d));
+  blinkTracker.on("blink", (d) => send("blink-detected", d));
+  blinkTracker.on("trackingStarted", (d) => send("blink-tracking-started", d));
+  blinkTracker.on("trackingStopped", (d) => send("blink-tracking-stopped", d));
+  blinkTracker.on("error", (e) => send("blink-tracker-error", e));
 
-  headTracker.on("trackingStarted", (data) => {
-    console.log("Head tracking started:", data);
-    mainWindow.webContents.send("head-tracking-started", data);
-  });
+  headTracker.on("ready", (d) => send("head-tracker-ready", d));
+  headTracker.on("headPose", (d) => send("head-pose-detected", d));
+  headTracker.on("blink", (d) => send("blink-detected", d));
+  headTracker.on("trackingStarted", (d) => send("head-tracking-started", d));
+  headTracker.on("trackingStopped", (d) => send("head-tracking-stopped", d));
+  headTracker.on("calibrated", (d) => send("head-tracker-calibrated", d));
+  headTracker.on("error", (e) => send("head-tracker-error", e));
 
-  headTracker.on("trackingStopped", (data) => {
-    console.log("Head tracking stopped:", data);
-    mainWindow.webContents.send("head-tracking-stopped", data);
-  });
+  eyeTracker.on("ready", (d) => send("eye-tracker-ready", d));
+  eyeTracker.on("calibrationStarted", (d) =>
+    send("eye-calibration-started", d),
+  );
+  eyeTracker.on("calibrationInstruction", (d) =>
+    send("eye-calibration-instruction", d),
+  );
+  eyeTracker.on("calibrationCompleted", (d) =>
+    send("eye-calibration-completed", d),
+  );
+  eyeTracker.on("gaze", (d) => send("gaze-detected", d));
+  eyeTracker.on("headPose", (d) => send("head-pose-detected", d));
+  eyeTracker.on("blink", (d) => send("blink-detected", d));
+  eyeTracker.on("trackingStarted", (d) => send("eye-tracking-started", d));
+  eyeTracker.on("trackingStopped", (d) => send("eye-tracking-stopped", d));
+  eyeTracker.on("error", (e) => send("eye-tracker-error", e));
 
-  headTracker.on("calibrated", (data) => {
-    console.log("Head tracker calibrated:", data);
-    mainWindow.webContents.send("head-tracker-calibrated", data);
-  });
+  // ── Start all three trackers concurrently ─────────────────────────────────
 
-  headTracker.on("error", (error) => {
-    console.error("Head tracker error:", error);
-    mainWindow.webContents.send("head-tracker-error", error);
-  });
-
-  // Set up event forwarding to renderer (eye tracker already initialized)
-  if (eyeTracker) {
-    eyeTracker.on("ready", (data) => {
-      console.log("Eye tracker ready:", data);
-      mainWindow.webContents.send("eye-tracker-ready", data);
-    });
-
-    eyeTracker.on("calibrationStarted", (data) => {
-      console.log("Calibration started:", data);
-      mainWindow.webContents.send("eye-calibration-started", data);
-    });
-
-    eyeTracker.on("calibrationInstruction", (data) => {
-      console.log("Calibration instruction:", data);
-      mainWindow.webContents.send("eye-calibration-instruction", data);
-    });
-
-    eyeTracker.on("calibrationCompleted", (data) => {
-      console.log("Calibration completed:", data);
-      mainWindow.webContents.send("eye-calibration-completed", data);
-    });
-
-    eyeTracker.on("gaze", (data) => {
-      // Send gaze data to renderer
-      mainWindow.webContents.send("gaze-detected", data);
-    });
-
-    eyeTracker.on("blink", (data) => {
-      console.log("Blink detected:", data);
-      mainWindow.webContents.send("blink-detected", data);
-    });
-
-    eyeTracker.on("trackingStarted", (data) => {
-      console.log("Eye tracking started:", data);
-      mainWindow.webContents.send("eye-tracking-started", data);
-    });
-
-    eyeTracker.on("trackingStopped", (data) => {
-      console.log("Eye tracking stopped:", data);
-      mainWindow.webContents.send("eye-tracking-stopped", data);
-    });
-
-    eyeTracker.on("error", (error) => {
-      console.error("Eye tracker error:", error);
-      mainWindow.webContents.send("eye-tracker-error", error);
-    });
-  }
-
-  // Initialize both Python processes
   Promise.all([
     blinkTracker.initialize(),
-    headTracker.initialize()
+    headTracker.initialize(),
+    eyeTracker.initialize(),
   ])
-    .then(() => console.log("All trackers initialized successfully"))
-    .catch((error) =>
-      console.error("Failed to initialize trackers:", error)
-    );
-};
+    .then(() => console.log("All trackers initialized"))
+    .catch((err) => console.error("Tracker initialization error:", err));
+}
+
+// ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  // Initialize eye tracker BEFORE creating window
-  eyeTracker = new EyeTraxTracker();
-
-  eyeTracker.on("calibrationCompleted", (data) => {
-    console.log("Calibration completed, now creating window...");
-    // Create window only after calibration is done
-    createWindow();
-  });
-
-  eyeTracker.on("error", (error) => {
-    console.error("Eye tracker error:", error);
-    // Create window anyway if calibration fails
-    if (!mainWindow) {
-      createWindow();
-    }
-  });
-
-  // Initialize and calibrate before showing anything
-  eyeTracker
-    .initialize()
-    .then(() => {
-      console.log("Eye tracker initialized successfully");
-      console.log("Starting automatic calibration...");
-      eyeTracker.calibrate();
-    })
-    .catch((error) => {
-      console.error("Failed to initialize eye tracker:", error);
-      // Create window anyway if initialization fails
-      createWindow();
-    });
-
+  createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on("window-all-closed", () => {
-  // Cleanup trackers
-  if (blinkTracker) {
-    blinkTracker.shutdown();
-  }
-  if (headTracker) {
-    headTracker.shutdown();
-  }
-  if (eyeTracker) {
-    eyeTracker.shutdown();
-  }
-
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  blinkTracker?.shutdown();
+  headTracker?.shutdown();
+  eyeTracker?.shutdown();
+  if (process.platform !== "darwin") app.quit();
 });
 
-// IPC handlers for blink tracking
-ipcMain.handle("start-blink-tracking", async (event, sessionId) => {
-  if (blinkTracker) {
-    return blinkTracker.startTracking(sessionId);
-  }
-  return false;
-});
+// ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.handle("stop-blink-tracking", async () => {
-  if (blinkTracker) {
-    return blinkTracker.stopTracking();
-  }
-  return false;
-});
+// Blink
+ipcMain.handle(
+  "start-blink-tracking",
+  (_e, sessionId) => blinkTracker?.startTracking(sessionId) ?? false,
+);
+ipcMain.handle(
+  "stop-blink-tracking",
+  () => blinkTracker?.stopTracking() ?? false,
+);
+ipcMain.handle("ping-blink-tracker", () => blinkTracker?.ping() ?? false);
 
-ipcMain.handle("ping-blink-tracker", async () => {
-  if (blinkTracker) {
-    return blinkTracker.ping();
-  }
-  return false;
-});
+// Eye
+ipcMain.handle(
+  "calibrate-eye-tracker",
+  (_e, w, h) => eyeTracker?.calibrate(w, h) ?? false,
+);
+ipcMain.handle(
+  "start-eye-tracking",
+  (_e, id) => eyeTracker?.startTracking(id) ?? false,
+);
+ipcMain.handle("stop-eye-tracking", () => eyeTracker?.stopTracking() ?? false);
+ipcMain.handle("ping-eye-tracker", () => eyeTracker?.ping() ?? false);
 
-// IPC handlers for eye tracking
-ipcMain.handle("calibrate-eye-tracker", async () => {
-  if (eyeTracker) {
-    return eyeTracker.calibrate();
-  }
-  return false;
-});
-
-ipcMain.handle("start-eye-tracking", async (event, sessionId) => {
-  if (eyeTracker) {
-    return eyeTracker.startTracking(sessionId);
-  }
-  return false;
-});
-
-ipcMain.handle("stop-eye-tracking", async () => {
-  if (eyeTracker) {
-    return eyeTracker.stopTracking();
-  }
-  return false;
-});
-
-ipcMain.handle("ping-eye-tracker", async () => {
-  if (eyeTracker) {
-    return eyeTracker.ping();
-  }
-  return false;
-});
-
-// IPC handlers for head tracking
-ipcMain.handle("start-head-tracking", async (event, sessionId) => {
-  if (headTracker) {
-    return headTracker.startTracking(sessionId);
-  }
-  return false;
-});
-
-ipcMain.handle("stop-head-tracking", async () => {
-  if (headTracker) {
-    return headTracker.stopTracking();
-  }
-  return false;
-});
-
-ipcMain.handle("calibrate-head-tracker", async () => {
-  if (headTracker) {
-    return headTracker.calibrate();
-  }
-  return false;
-});
-
-ipcMain.handle("ping-head-tracker", async () => {
-  if (headTracker) {
-    return headTracker.ping();
-  }
-  return false;
-});
+// Head
+ipcMain.handle(
+  "start-head-tracking",
+  (_e, id) => headTracker?.startTracking(id) ?? false,
+);
+ipcMain.handle(
+  "stop-head-tracking",
+  () => headTracker?.stopTracking() ?? false,
+);
+ipcMain.handle(
+  "calibrate-head-tracker",
+  () => headTracker?.calibrate() ?? false,
+);
+ipcMain.handle("ping-head-tracker", () => headTracker?.ping() ?? false);
