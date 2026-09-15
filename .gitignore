@@ -20,6 +20,10 @@ eye_logs/
 .claude/
 CLAUDE.md
 
+# Research
+docs/assessment-design.md
+docs/calibration-design.md
+
 # Environment variables
 .env
 .env.local

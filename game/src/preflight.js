@@ -154,7 +154,7 @@ function fail(check, message, extra = {}) {
  * Resolves with { ok: true, ... } or { ok: false, check, message } naming the
  * first unmet prerequisite.
  */
-async function runPreflight() {
+async function runPreflight({ checkCamera = false } = {}) {
   const interpreter = resolveInterpreter();
   const requirements = readRequirements();
   const index = cameraIndex();
@@ -184,7 +184,7 @@ async function runPreflight() {
   try {
     probe = await runProbe(interpreter.command, {
       modules: requirements.map(({ dist, module }) => ({ dist, module })),
-      camera_index: index,
+      camera_index: checkCamera ? index : null,
     });
   } catch (err) {
     return fail(
@@ -238,12 +238,17 @@ async function runPreflight() {
     );
   }
 
-  // 6. Camera. This is the check that catches a machine with no webcam.
-  if (probe.camera && probe.camera.checked && !probe.camera.opened) {
+  // 6. Camera, only when explicitly asked for.
+  //
+  // The renderer probes the camera with getUserMedia, which separates
+  // permission denied, no device, in use, and blocked by policy. OpenCV
+  // returns one boolean for all four, so probing here would replace a precise
+  // diagnosis with a vague one. It would also open the device a third time in
+  // one startup, and two processes cannot reliably share a webcam on Windows.
+  if (checkCamera && probe.camera && probe.camera.checked && !probe.camera.opened) {
     return fail(
       "camera",
-      `No camera opened at index ${index}. Connect a webcam, close any other ` +
-        "app using it, and confirm camera access is allowed in Windows privacy settings.",
+      `No camera opened at index ${index}.`,
       { cameraIndex: index },
     );
   }

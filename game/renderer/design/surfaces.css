@@ -1,0 +1,510 @@
+/*
+ * Surfaces: the layout components the whole app is assembled from.
+ *
+ * tokens.css holds the values. This holds the six arrangements they make.
+ * There is no seventh, and no screen invents one.
+ *
+ *   sheet    A ledger screen. Content hangs left off the rule and runs to a
+ *            measure. Setup, camera check, operator entry, report.
+ *   plate    A Ladybird non-fiction plate. One picture, one sentence under
+ *            it, a wide margin, and nothing else. Every instruction screen.
+ *   stage    The scope. Full bleed canvas, the rule dropped to the vertical
+ *            centre where it is the horizon, stimuli centred on it because
+ *            visual angle is measured from screen centre.
+ *   pause    The screen between games. A plate with no instruction on it.
+ *   gate     A blocking message with one action. Camera states use it.
+ *   report   The ledger at its densest. Values sit on the printed ruling.
+ *
+ * The rule is the same y on every one of them, and drops to the centre only
+ * when the screen hands over to the child. That drop is the single piece of
+ * non-user-triggered motion in the app.
+ */
+
+/* ── Frame ─────────────────────────────────────────────────────────────── */
+
+html,
+body {
+  height: 100%;
+}
+
+/*
+ * A component that sets display wins over the hidden attribute otherwise, and
+ * a screen that hides a field by setting `hidden` then shows it anyway is the
+ * kind of defect that reaches a child rather than a reviewer.
+ */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  font-family: var(--din);
+  font-size: var(--t-body);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/*
+ * The surface host fills the window. Without this the scope's near-black
+ * ground paints only as tall as its content, and a child-facing screen comes
+ * up on paper with beam-coloured text on it, which is unreadable.
+ */
+#app {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.surface {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.surface[hidden] {
+  display: none;
+}
+
+/* ── Sheet ─────────────────────────────────────────────────────────────── */
+
+.sheet {
+  padding: calc(var(--rule-y) + var(--s6)) var(--s7) var(--s6);
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: grid;
+  grid-template-columns: minmax(0, 62ch) minmax(0, 1fr);
+  column-gap: var(--s7);
+  align-content: start;
+}
+
+.sheet > * {
+  grid-column: 1;
+}
+
+.sheet.wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
+ * The right column carries what the left column is about to do. On the setup
+ * sheet that is the session plan, which is the same tick sequence the child
+ * sees on the horizon, written out. It is the one place an adult can see the
+ * whole session before committing to it.
+ */
+.sheet-aside {
+  grid-column: 2;
+  grid-row: 1 / 40;
+  align-self: start;
+  border-left: 1px solid var(--rule);
+  padding-left: var(--s4);
+  max-width: 34ch;
+}
+
+.sheet-aside ol {
+  list-style: none;
+  margin: var(--s3) 0 0;
+  padding: 0;
+}
+
+.sheet-aside li {
+  display: grid;
+  grid-template-columns: var(--s4) minmax(0, 1fr) auto;
+  column-gap: var(--s3);
+  align-items: baseline;
+  font-family: var(--din);
+  font-size: var(--t-small);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.sheet-aside li span:first-child {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-aside li span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  font-size: var(--t-label);
+}
+
+.sheet-head {
+  position: absolute;
+  top: calc(var(--rule-y) - var(--s5));
+  left: var(--s7);
+  right: var(--s7);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s5);
+}
+
+.mark {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  color: var(--ink);
+}
+
+.scope .mark {
+  color: var(--beam);
+}
+
+.sheet-title {
+  font-family: var(--read);
+  font-size: var(--t-head);
+  font-weight: 400;
+  line-height: 1.2;
+  max-width: 20ch;
+  margin: 0 0 var(--s4);
+}
+
+.sheet-body {
+  max-width: 62ch;
+}
+
+.sheet-body p {
+  font-family: var(--read);
+  font-size: var(--t-body);
+  line-height: 1.62;
+  margin: 0 0 var(--s4);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+
+/* ── Plate ─────────────────────────────────────────────────────────────── */
+
+/*
+ * The plate is the load-bearing idea for everything a child reads. A museum
+ * label works the same way: the apparatus does the talking, the sentence
+ * under it says what you are looking at, and nobody writes a paragraph.
+ *
+ * Grid rather than centring. The plate hangs off the same left edge as the
+ * text on a sheet, and the right column stays empty on purpose so the line
+ * length never runs past a measure a seven-year-old can hold.
+ */
+
+.plate-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.3fr);
+  grid-template-rows: var(--rule-y) minmax(0, 1fr) auto;
+  column-gap: var(--s6);
+  height: 100%;
+  padding: 0 var(--s7) var(--s6);
+}
+
+.plate-figure {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: stretch;
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  max-height: 62vh;
+  margin: var(--s5) 0 0;
+  background: var(--scope-raise);
+  overflow: hidden;
+}
+
+.ledger .plate-figure {
+  background: var(--paper-sunk);
+}
+
+.plate-figure canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.plate-text {
+  grid-column: 1;
+  grid-row: 3;
+  padding: var(--s4) 0 var(--s2);
+}
+
+.plate-line {
+  margin: 0;
+}
+
+.scope .plate-line {
+  color: var(--beam);
+}
+
+/* Band A reads a size up. The reading level targets the bottom of the band,
+   and so does the type size. */
+.plate-screen[data-band="A"] .plate-line {
+  font-size: var(--t-display);
+  max-width: 16ch;
+}
+
+.plate-aside {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  align-self: end;
+  padding-bottom: var(--s5);
+}
+
+/* ── The cue ───────────────────────────────────────────────────────────── */
+
+/*
+ * How to advance. It says the key and it shows the key. A child who cannot
+ * read the word can still match the shape to the thing under their thumb.
+ */
+
+.cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s3);
+  font-family: var(--din);
+  font-size: var(--t-small);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--beam-soft);
+  margin-top: var(--s3);
+}
+
+.ledger .cue {
+  color: var(--ink-soft);
+}
+
+.keycap {
+  display: inline-block;
+  min-width: var(--s6);
+  padding: var(--s1) var(--s3);
+  text-align: center;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--beam);
+  border: 1px solid var(--scope-line);
+  border-bottom-width: 3px;
+}
+
+.ledger .keycap {
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.keycap[data-key="space"] {
+  min-width: calc(var(--s8) + var(--s4));
+}
+
+/* ── Stage ─────────────────────────────────────────────────────────────── */
+
+.stage-screen {
+  position: absolute;
+  inset: 0;
+  background: var(--scope);
+}
+
+.stage-host {
+  position: absolute;
+  inset: 0;
+}
+
+.stage-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/*
+ * Progress. Ticks on the horizon, the same marks the adult rail uses.
+ *
+ * Time-based, never performance-based. It advances at the same rate for every
+ * child regardless of accuracy, which is what keeps it out of the measurement
+ * (assessment-design 4.1). There is no score anywhere on a stage screen.
+ */
+
+/*
+ * Position in the session, on the rule.
+ *
+ * Two lines cross a scored screen and each has one job. This one is the rule,
+ * at the same y as on every adult screen, and it carries where the child is in
+ * the session. The other is the horizon at the vertical centre, which carries
+ * the stimuli, and it is at the centre because visual angle is measured from
+ * screen centre and nothing else is allowed to sit there.
+ *
+ * The marks are the same size and cadence as the ticks on the operator rail.
+ * A child reads a horizon filling up; an adult reads a ruled line with the
+ * session marked along it. It is the same line.
+ */
+.watch-progress {
+  position: absolute;
+  top: calc(var(--rule-y) - var(--s2));
+  left: var(--s7);
+  right: var(--s7);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s2);
+  height: var(--s2);
+  pointer-events: none;
+}
+
+.watch-mark {
+  width: var(--s5);
+  height: 1px;
+  background: var(--scope-line);
+}
+
+.watch-mark[data-state="done"] {
+  background: var(--accent);
+  height: var(--s2);
+}
+
+/* ── Pause ─────────────────────────────────────────────────────────────── */
+
+.pause-screen {
+  display: grid;
+  grid-template-rows: var(--rule-y) 1fr auto;
+  height: 100%;
+  padding: 0 var(--s7) var(--s6);
+}
+
+.pause-line {
+  grid-row: 2;
+  align-self: center;
+  font-family: var(--read);
+  font-size: var(--t-display);
+  line-height: 1.24;
+  max-width: 18ch;
+  color: var(--beam);
+  margin: 0;
+}
+
+.pause-foot {
+  grid-row: 3;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s5);
+}
+
+/* ── Report ────────────────────────────────────────────────────────────── */
+
+/*
+ * A report row.
+ *
+ * Every line of text in the report is exactly one ruling tall, so a value and
+ * its note sit on the printed lines rather than floating between them. That is
+ * what makes the ruling a ledger rather than a texture, and it is why the row
+ * grows in whole rulings instead of being fixed at one: a note that wraps used
+ * to overprint the row below it.
+ */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 26ch) minmax(0, 10ch) minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--s4);
+  min-height: var(--s4);
+  border-bottom: 1px solid var(--grid);
+}
+
+.row-name,
+.row-value,
+.row-note {
+  line-height: var(--s4);
+  margin: 0;
+}
+
+.row-name {
+  font-family: var(--din);
+  font-size: var(--t-small);
+}
+
+.row[data-depth="1"] .row-name {
+  padding-left: var(--s4);
+  color: var(--ink-soft);
+}
+
+.row-value {
+  font-family: var(--din);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: var(--t-small);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.row-note {
+  font-family: var(--read);
+  font-size: var(--t-small);
+  color: var(--ink-soft);
+}
+
+/*
+ * A measure with its interval drawn to scale. Wider name column, because these
+ * are plain-language labels rather than field names, and the interval needs
+ * the remaining width to be legible as a width.
+ */
+.row-interval {
+  grid-template-columns: minmax(0, 38ch) minmax(0, 10ch) minmax(0, 1fr);
+  /*
+   * Tops, not baselines. The interval track carries no text, so aligning it
+   * on a baseline drops it onto the ruling below its own label and the bar
+   * ends up describing the wrong measure.
+   */
+  align-items: start;
+}
+
+.row-track {
+  position: relative;
+  height: var(--s4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.row-range {
+  position: absolute;
+  top: var(--s1);
+  height: var(--s2);
+  background: var(--accent);
+  opacity: 0.34;
+}
+
+.row-point {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: var(--s4);
+  background: var(--ink);
+}
+
+.row-caption {
+  font-family: var(--din);
+  font-size: var(--t-micro);
+  line-height: var(--s4);
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The valid-trial bar. Monospace so the cells line up between rows. */
+.row-bar {
+  font-family: var(--tech);
+  font-size: var(--t-micro);
+  line-height: var(--s4);
+  letter-spacing: -0.04em;
+  color: var(--ink-soft);
+}
+
+/* ── Focus ─────────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.scope :focus-visible {
+  outline-color: var(--beam);
+}

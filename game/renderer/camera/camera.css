@@ -1,0 +1,418 @@
+/*
+ * Camera check screens.
+ *
+ * These were built before the design tokens existed and carried their own
+ * palette and their own three type families. They now sit on the same system
+ * as every other screen: the token palette, the four-pixel spacing scale, the
+ * DIN and Sitka pairing, and the rule at the same y as everywhere else.
+ *
+ * Two things changed beyond the swap.
+ *
+ * The paper was a warm cream. It is now the cool grey-green in tokens.css.
+ * Warm cream with a high-contrast serif is the single commonest look a
+ * generated page falls into, and this is a clinical instrument.
+ *
+ * Labels were tracked-out uppercase in a monospace. They are now DIN at label
+ * size with the same tracking as every other label in the app. Uppercase
+ * labels above every heading are template chrome, and here the label is
+ * carrying real data: which of the four checks is being run.
+ *
+ * The severity colour is still the only saturated thing on the screen, and it
+ * is desaturated even then. Nothing on a camera screen is a warning light,
+ * because nothing a child does on one is a mistake.
+ */
+
+#camera-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--din);
+  font-size: var(--t-body);
+  line-height: 1.5;
+}
+
+#camera-layer[data-visible="true"] {
+  display: block;
+}
+
+#camera-layer[data-severity="ask"] { --accent: var(--sig-ask); }
+#camera-layer[data-severity="setup"] { --accent: var(--sig-setup); }
+#camera-layer[data-severity="blocked"] { --accent: var(--sig-blocked); }
+#camera-layer[data-severity="lost"] { --accent: var(--sig-lost); }
+#camera-layer[data-severity="ok"] { --accent: var(--sig-ok); }
+
+/*
+ * The rule. Same y as every other screen in the app, and the severity colour
+ * is carried by it rather than by a separate bar, so the state of the check
+ * reads off the same line that holds everything else.
+ */
+.cam-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--rule-y);
+  height: 2px;
+  background: var(--accent);
+}
+
+.cam-body {
+  position: absolute;
+  inset: calc(var(--rule-y) + var(--s5)) 0 0 0;
+  display: grid;
+  grid-template-columns: minmax(0, 15ch) minmax(0, 1fr) minmax(0, 0.62fr);
+  column-gap: var(--s6);
+  min-height: 0;
+}
+
+/*
+ * The preview column collapses when there is nothing to preview. A reserved
+ * empty third of the screen reads as a loading state rather than as a layout
+ * decision, and on most of these screens there is no stream to show.
+ */
+.cam-body:has(.cam-preview-frame[hidden]):has(.cam-gauge[hidden]) {
+  grid-template-columns: minmax(0, 15ch) minmax(0, 1fr);
+}
+
+/* ── Left rail: where we are in the check sequence ───────────────────────── */
+
+.cam-rail {
+  padding: 0 0 var(--s5) var(--s7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+
+.cam-mark {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  color: var(--ink);
+}
+
+/*
+ * Numbered, because this genuinely is a sequence: the checks run in
+ * dependency order and stop at the first unmet one, so the number tells an
+ * adult how far the check got before it stopped.
+ */
+.cam-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.cam-steps li {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  display: grid;
+  grid-template-columns: var(--s4) 1fr;
+  column-gap: var(--s2);
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.cam-steps li[data-state="active"] {
+  color: var(--ink);
+}
+
+.cam-steps li[data-state="active"] .cam-step-num {
+  color: var(--accent);
+}
+
+.cam-steps li[data-state="done"] {
+  color: var(--ink-soft);
+}
+
+.cam-steps li[data-state="done"] .cam-step-num {
+  font-size: 0;
+}
+
+.cam-steps li[data-state="done"] .cam-step-num::after {
+  content: "\2713";
+  font-size: var(--t-label);
+}
+
+/* ── Main column ─────────────────────────────────────────────────────────── */
+
+.cam-main {
+  padding: 0 var(--s5) var(--s5) 0;
+  max-width: 60ch;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Which of the four checks this is. A label that carries data, not an eyebrow. */
+.cam-kicker {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: var(--s3);
+}
+
+.cam-title {
+  font-family: var(--read);
+  font-weight: 400;
+  font-size: var(--t-head);
+  line-height: 1.16;
+  margin: 0;
+  max-width: 20ch;
+}
+
+.cam-title-rule {
+  width: var(--s6);
+  height: 1px;
+  background: var(--rule-strong);
+  margin: var(--s4) 0;
+}
+
+/*
+ * The child reads this. It is the largest thing on the screen after the title
+ * and it is never a paraphrase of the technical cause into something vaguer.
+ */
+.cam-child {
+  font-family: var(--read);
+  font-size: var(--t-lead);
+  line-height: 1.46;
+  margin: 0 0 var(--s5);
+  max-width: 30ch;
+}
+
+/* ── Adult block ─────────────────────────────────────────────────────────── */
+
+/*
+ * Set apart rather than hidden. A child who cannot fix the problem reads the
+ * line above and stops. An adult reads this one and knows what to change.
+ */
+.cam-adult {
+  border-left: 2px solid var(--accent);
+  padding: 0 0 0 var(--s4);
+  margin: 0 0 var(--s5);
+  max-width: 52ch;
+}
+
+.cam-adult-label {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: var(--s2);
+}
+
+.cam-adult p {
+  margin: 0;
+  font-family: var(--read);
+  font-size: var(--t-small);
+  line-height: 1.58;
+  color: var(--ink-soft);
+}
+
+/* ── Field ───────────────────────────────────────────────────────────────── */
+
+.cam-field[hidden],
+.cam-adult[hidden] {
+  display: none;
+}
+
+.cam-field {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0 0 var(--s5);
+}
+
+.cam-field label {
+  display: block;
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-soft);
+  margin-bottom: var(--s2);
+}
+
+.cam-field input {
+  font-family: var(--din);
+  font-size: var(--t-lead);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--paper-raise);
+  border: none;
+  border-bottom: 2px solid var(--rule-strong);
+  border-radius: 0;
+  padding: var(--s2) var(--s3);
+  width: 7ch;
+}
+
+.cam-field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cam-field-unit {
+  font-family: var(--din);
+  font-size: var(--t-small);
+  color: var(--ink-faint);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────── */
+
+.cam-actions {
+  display: flex;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+
+.cam-btn {
+  font-family: var(--din);
+  font-size: var(--t-body);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--rule);
+  border-radius: 0;
+  padding: var(--s3) var(--s5);
+  cursor: pointer;
+  transition: background var(--settle) var(--ease);
+}
+
+.cam-btn:hover {
+  background: var(--paper-sunk);
+}
+
+.cam-btn[data-primary="true"] {
+  color: var(--paper);
+  background: var(--ink);
+  box-shadow: none;
+}
+
+.cam-btn[data-primary="true"]:hover {
+  background: var(--accent);
+}
+
+.cam-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * The technical specifics. Never the primary message, and the only place on
+ * the screen where an API name or a device label appears. It is here because
+ * on one development machine it reads "Listed video inputs: OBS Virtual
+ * Camera", which answers the whole question at a glance and would otherwise
+ * have sent an adult hunting for a video call that did not exist.
+ */
+.cam-detail {
+  font-family: var(--tech);
+  font-size: var(--t-micro);
+  line-height: 1.55;
+  color: var(--ink-faint);
+  margin-top: auto;
+  padding-top: var(--s4);
+  border-top: 1px solid var(--grid);
+  max-width: 64ch;
+}
+
+.cam-detail:empty {
+  border-top: none;
+}
+
+/* ── Right column ────────────────────────────────────────────────────────── */
+
+.cam-aside {
+  padding: 0 var(--s7) var(--s5) 0;
+  display: flex;
+  align-self: start;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.cam-preview-label {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-soft);
+}
+
+.cam-preview-frame {
+  position: relative;
+  background: var(--paper-sunk);
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+}
+
+.cam-preview-frame[hidden] {
+  display: none;
+}
+
+.cam-preview-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Mirrored, because a child adjusting their position expects a mirror. */
+  transform: scaleX(-1);
+  display: block;
+}
+
+/* ── Distance gauge ──────────────────────────────────────────────────────── */
+
+/*
+ * The band is the window that works, the fill is where the child is. Shown as
+ * a measurement rather than as a verdict: "move back" without showing how far
+ * is a instruction a six-year-old cannot act on.
+ */
+.cam-gauge[hidden] {
+  display: none;
+}
+
+.cam-gauge-track {
+  position: relative;
+  height: var(--s4);
+  background: var(--paper-sunk);
+  margin-top: var(--s2);
+}
+
+.cam-gauge-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+
+.cam-gauge-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+.cam-gauge-caption {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--din);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-top: var(--s1);
+}

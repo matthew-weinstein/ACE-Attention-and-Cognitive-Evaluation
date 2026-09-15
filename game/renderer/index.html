@@ -4,32 +4,69 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ACE</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap"
-      rel="stylesheet"
+
+    <!--
+      Nothing is fetched at runtime and nothing is evaluated from a string, so
+      the policy can be this tight. It also removes the Electron insecure-CSP
+      warning, which is worth removing on its own: a warning that is always
+      present is a warning nobody reads.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:; font-src 'self'; connect-src 'none'"
     />
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
 
-      body {
-        overflow: hidden;
-        background: #000;
-      }
-
-      #gameCanvas {
-        display: block;
-        cursor: default;
-      }
-    </style>
+    <!--
+      No webfont is fetched. Bahnschrift and Sitka ship with Windows, and both
+      have a declared fallback stack. An assessment that needs the network to
+      render its instructions is an assessment that fails in a clinic with bad
+      wifi, and a font that arrives late shifts the layout of a screen a child
+      is already reading.
+    -->
+    <link rel="stylesheet" href="design/tokens.css" />
+    <link rel="stylesheet" href="design/surfaces.css" />
+    <link rel="stylesheet" href="camera/camera.css" />
   </head>
+
   <body>
-    <canvas id="gameCanvas"></canvas>
-    <script src="renderer.js"></script>
+    <div id="app" class="ledger"></div>
+
+    <!--
+      Loaded in dependency order, plain script tags, no bundler. Each file
+      declares one global and reads only globals declared above it.
+    -->
+
+    <!-- Timing. Nothing below this may keep its own clock. -->
+    <script src="core/clock.js"></script>
+    <script src="core/driver.js"></script>
+    <script src="core/input.js"></script>
+    <script src="core/trial.js"></script>
+    <script src="core/block.js"></script>
+    <script src="core/stage.js"></script>
+    <script src="core/metrics.js"></script>
+
+    <!-- Drawing. -->
+    <script src="art/shapes.js"></script>
+
+    <!-- Camera lifecycle. Runs before any game, and owns its own screens. -->
+    <script src="../src/camera_states.js"></script>
+    <script src="camera/probe.js"></script>
+    <script src="camera/screens.js"></script>
+    <script src="camera/flow.js"></script>
+
+    <!-- Screens. -->
+    <script src="screens/ui.js"></script>
+    <script src="screens/start.js"></script>
+    <script src="screens/report.js"></script>
+
+    <!-- Games. -->
+    <script src="games/common.js"></script>
+    <script src="games/signal_watch.js"></script>
+    <script src="games/asteroid_run.js"></script>
+    <script src="games/beacon_line.js"></script>
+    <script src="games/two_doors.js"></script>
+    <script src="games/look_away.js"></script>
+
+    <script src="app.js"></script>
   </body>
 </html>

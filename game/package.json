@@ -1,10 +1,13 @@
 {
   "name": "ace-assessment",
   "version": "1.0.0",
-  "description": "Attention and Cognitive Evaluation — an Electron app that uses webcam-based eye tracking and head pose estimation to screen children for attention disorders.",
+  "description": "Attention and Cognitive Evaluation. An Electron app that uses webcam-based eye tracking and head pose estimation to measure attention-related behaviours in children.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "debug": "electron . --debug",
+    "selftest": "electron . --selftest",
+    "test": "node test/camera_lifecycle.test.js && node test/timing.test.js && python test/test_tracker_timing.py"
   },
   "author": "Matt Weinstein",
   "license": "MIT",

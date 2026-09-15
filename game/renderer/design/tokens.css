@@ -1,0 +1,332 @@
+/*
+ * ACE design tokens.
+ *
+ * ── The structural idea ─────────────────────────────────────────────────────
+ *
+ * One horizontal rule crosses every screen at the same height. Everything
+ * hangs from it.
+ *
+ * On the adult surface it is a ruled line on a record sheet, with the step
+ * sequence written along it. On the child surface it is the station horizon:
+ * the line craft cross, beacons stand on, and doors open onto. Same y, same
+ * weight, same tick marks for position in the session. The child reads a
+ * horizon and the adult reads a ruled line, and it is the same line.
+ *
+ * Nothing is centred against it. Content hangs left off the rule and runs to
+ * a measure. The only centred things on any screen are stimuli, which are
+ * centred because visual angle is measured from screen centre.
+ *
+ * ── Two surfaces ────────────────────────────────────────────────────────────
+ *
+ * ledger   The adult surface. Setup, camera check, operator entry, report.
+ *          Cool paper grey-green with a printed grid, not warm cream.
+ * scope    The child surface. Flat vector on near-black, one accent hue per
+ *          game, thin precise line work. Instrument panel, not toy.
+ *
+ * Both share this grid, this spacing scale, and this type scale. They are the
+ * same system at two exposures.
+ *
+ * ── Where the look comes from ───────────────────────────────────────────────
+ *
+ * Charley Harper's flat geometric reduction, on Vignelli's grid, captioned
+ * like a Ladybird plate. Specifically:
+ *
+ *   Charley Harper       A rock is two triangles and a shadow. Organisms and
+ *                        objects reduced to the fewest flat shapes that still
+ *                        read. No modelling, no texture, no gradient. This is
+ *                        what the station art does.
+ *   Dick Bruna           Six colours, one unmodulated line weight, absolute
+ *                        clarity. Child-appropriate with no bubble letters
+ *                        and no primary-colour palette.
+ *   Ladybird / Puffin    One plate, one sentence under it, wide margin.
+ *   non-fiction plates   Every instruction screen is built this way.
+ *   Museum exhibit label A large legible sentence, a small caption, and the
+ *                        apparatus doing the talking. Never a wall of text.
+ *   Unimark / Vignelli   The rail, the tick marks, DIN at two weights with
+ *                        wide tracking on labels that carry data.
+ *
+ * ── Type ────────────────────────────────────────────────────────────────────
+ *
+ * Bahnschrift (DIN 1451) for labels, numbers, and every instrument surface.
+ * DIN is the engineering-drawing typeface. It is on every Windows 10 and 11
+ * machine, so nothing is fetched at runtime.
+ *
+ * Sitka (Matthew Carter, drawn for reading research) for the sentences a
+ * child reads. A warm reading serif against a condensed industrial grotesque
+ * is a real pairing, and it keeps the child-facing voice away from the
+ * app-interface voice.
+ *
+ * No webfont is loaded. An assessment that needs the network to render its
+ * instructions is an assessment that fails in a clinic with bad wifi.
+ */
+
+:root {
+  /* ── Ledger surface ─────────────────────────────────────────────────── */
+  --paper: #e6e7e2;
+  --paper-sunk: #dcded7;
+  --paper-raise: #eff0ec;
+  --grid: #c6ccc6;
+  --rule: #9aa39c;
+  --rule-strong: #1b1f1d;
+  --ink: #1b1f1d;
+  --ink-soft: #4e564f;
+  --ink-faint: #79817a;
+
+  /* ── Scope surface ──────────────────────────────────────────────────── */
+  --scope: #101315;
+  --scope-raise: #191d20;
+  --scope-line: #2d3438;
+  --beam: #e4e1d8;
+  --beam-soft: #8d938f;
+
+  /* ── State signals. Desaturated on purpose. Nothing here is a warning
+       light, because nothing a child does on this screen is a mistake. ── */
+  --sig-ask: #2f5673;
+  --sig-setup: #8a6516;
+  --sig-blocked: #8a3327;
+  --sig-lost: #8a3327;
+  --sig-ok: #3c6647;
+
+  /* ── One accent per game. No acid green, no vermilion, no purple. ───── */
+  --game-signal-watch: #6ba3bd;
+  --game-beacon-line: #d0913f;
+  --game-asteroid-run: #b3604a;
+  --game-two-doors: #7d9b62;
+  --game-look-away: #b97086;
+
+  --accent: var(--sig-ask);
+
+  /* ── Spacing. 4px base, Fibonacci steps. Every margin, gap and pad on
+       any screen is one of these eight values. ───────────────────────── */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 20px;
+  --s5: 32px;
+  --s6: 52px;
+  --s7: 84px;
+  --s8: 136px;
+
+  /* ── Type scale. Major third from 17px, rounded to whole pixels. ────── */
+  --t-micro: 11px;
+  --t-label: 13px;
+  --t-small: 15px;
+  --t-body: 17px;
+  --t-lead: 21px;
+  --t-sub: 27px;
+  --t-head: 36px;
+  --t-display: 48px;
+  --t-plate: 68px;
+
+  --din: "Bahnschrift", "DIN Alternate", "DIN Condensed", "Roboto Condensed",
+    "Archivo Narrow", system-ui, sans-serif;
+  --read: "Sitka Text", "Iowan Old Style", "Palatino Linotype", Palatino,
+    Charter, Georgia, serif;
+  --tech: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  /* The rule sits here on every screen, adult or child. */
+  --rule-y: 84px;
+  --rule-weight: 1px;
+
+  /* One transition duration for the whole app. Motion answers an action. */
+  --settle: 220ms;
+  --ease: cubic-bezier(0.2, 0, 0.1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --settle: 1ms;
+  }
+}
+
+/* ── Surface classes ──────────────────────────────────────────────────── */
+
+.ledger {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/*
+ * Printed ledger ruling. Only on the report, and only because report values
+ * sit on these lines: every row is exactly one ruling apart, so the grid is
+ * doing the job a ledger grid does rather than standing in for one. On a
+ * setup screen it would be a texture nobody reads, so it is not there.
+ */
+.ledger.ruled {
+  background-image: linear-gradient(
+    to bottom,
+    var(--grid) 0,
+    var(--grid) 1px,
+    transparent 1px,
+    transparent 100%
+  );
+  background-size: 100% var(--s4);
+  background-position: 0 calc(var(--rule-y) - 1px);
+}
+
+.scope {
+  background: var(--scope);
+  color: var(--beam);
+}
+
+/* ── The rule ─────────────────────────────────────────────────────────── */
+
+.rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--rule-y);
+  height: var(--rule-weight);
+  background: var(--rule-strong);
+  transform-origin: left center;
+}
+
+.scope .rule {
+  background: var(--scope-line);
+}
+
+/* The single orchestrated moment: the rule draws in from the left once, when
+   a surface first appears. Everything else on the screen is already in place
+   underneath it. */
+.rule[data-draw="true"] {
+  animation: rule-draw 420ms var(--ease) both;
+}
+
+@keyframes rule-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rule[data-draw="true"] {
+    animation: none;
+  }
+}
+
+/* Position in the session, marked as ticks along the rule. The child sees
+   the same ticks filling on the horizon. */
+.rule-ticks {
+  position: absolute;
+  top: calc(var(--rule-y) - var(--s3));
+  left: 0;
+  right: 0;
+  height: var(--s3);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s2);
+  padding-left: var(--s7);
+  pointer-events: none;
+}
+
+.rule-tick {
+  width: var(--s5);
+  height: var(--s1);
+  background: var(--rule);
+  opacity: 0.4;
+}
+
+.rule-tick[data-state="done"] {
+  opacity: 1;
+  background: var(--rule-strong);
+}
+
+.rule-tick[data-state="active"] {
+  opacity: 1;
+  background: var(--accent);
+  height: var(--s2);
+}
+
+/* ── Type roles ───────────────────────────────────────────────────────── */
+
+/*
+ * A label is DIN, wide-tracked, and only ever used where it carries data a
+ * reader needs: a step number, a unit, a metric name in the report. It is
+ * never an eyebrow above a heading.
+ */
+.label {
+  font-family: var(--din);
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-soft);
+}
+
+.scope .label {
+  color: var(--beam-soft);
+}
+
+.plate-line {
+  font-family: var(--read);
+  font-size: var(--t-head);
+  font-weight: 400;
+  line-height: 1.32;
+  max-width: 22ch;
+  letter-spacing: 0.002em;
+}
+
+.read {
+  font-family: var(--read);
+  font-size: var(--t-body);
+  line-height: 1.62;
+  max-width: 62ch;
+}
+
+.figure {
+  font-family: var(--din);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────── */
+
+.act {
+  font-family: var(--din);
+  font-size: var(--t-body);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--paper);
+  background: var(--ink);
+  border: none;
+  border-radius: 0;
+  padding: var(--s3) var(--s5);
+  cursor: pointer;
+  transition: background var(--settle) var(--ease);
+}
+
+.act:hover {
+  background: var(--accent);
+}
+
+.act[data-weight="quiet"] {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.act[data-weight="quiet"]:hover {
+  background: var(--paper-sunk);
+}
+
+.act:focus-visible,
+.field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field {
+  font-family: var(--din);
+  font-size: var(--t-lead);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--paper-raise);
+  border: none;
+  border-bottom: 2px solid var(--rule-strong);
+  border-radius: 0;
+  padding: var(--s2) var(--s3);
+  width: 6ch;
+}
